@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(notion-dev tickets)",
-      "Bash(notion-dev:*)"
-    ],
-    "deny": []
-  }
-}

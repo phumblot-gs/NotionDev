@@ -67,6 +67,7 @@ notion-dev-install/
 *.log
 config.yml
 .cursor/
+.claude/
 
 # OS
 .DS_Store
