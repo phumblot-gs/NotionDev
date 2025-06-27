@@ -1,213 +1,213 @@
 # NotionDev
 
-> **Intégration Notion ↔ Asana ↔ Git pour développeurs**  
-> Accélérez votre développement avec un contexte IA chargé automatiquement depuis vos spécifications Notion
+> **Notion ↔ Asana ↔ Git Integration for Developers**  
+> Accelerate your development with AI context automatically loaded from your Notion specifications
 
-NotionDev est adapté aux grands projets qui nécessitent de concentrer les agents IA sur un context présenté de manière très précise pour éviter les régressions sur le code.
-Nous implémentons un workflow avec un context switching automatique, qui s'appuie sur vos spécifications.
-Pour cela nous supposons que votre application est organisée en modules, et vos modules en features. Nous supposons aussi que vos modules et vos features sont documentées dans deux bases Notion.
+NotionDev is designed for large projects that require focusing AI agents on precisely presented context to avoid code regressions.
+We implement a workflow with automatic context switching, based on your specifications.
+For this, we assume your application is organized into modules, and your modules into features. We also assume your modules and features are documented in two Notion databases.
 
-NotionDev permet aux développeurs de charger automatiquement le contexte complet de leurs features depuis Notion directement dans les rules de leur IDE (Cursor), tout en synchronisant avec les tickets Asana qui leur sont assignés.
-Ils peuvent alors commenter les tickets Asana, taguer leur code avec les features implémentées, et réassigner un ticket à la personne qui l'a créée lorsque le travail est terminé.
+NotionDev allows developers to automatically load the complete context of their features from Notion directly into their IDE rules (Cursor), while synchronizing with their assigned Asana tickets.
+They can then comment on Asana tickets, tag their code with implemented features, and reassign a ticket to the person who created it when work is completed.
 
-NotionDev fonctionne dans un environnement multi-projets : vous pouvez avoir en local plusieurs projets git, vous pouvez travailler des features distinctes dans chaque projet.
+NotionDev works in a multi-project environment: you can have multiple git projects locally, you can work on distinct features in each project.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.9+-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-## ✨ Fonctionnalités
+## ✨ Features
 
-- 🎯 **Workflow intégré** : Ticket Asana +  Documentation Notion → Contexte IA → Code
-- 🤖 **IA Context automatique** : Export direct vers Cursor avec specs complètes
-- 🔄 **Multi-projets** : Détection automatique du projet courant
-- 📋 **Traçabilité** : Headers automatiques dans le code pour lier fonctionnel ↔ technique
-- 🚀 **Zero config par projet** : Une seule configuration globale pour tous vos projets
+- 🎯 **Integrated workflow**: Asana ticket + Notion documentation → AI Context → Code
+- 🤖 **Automatic AI Context**: Direct export to Cursor with complete specs
+- 🔄 **Multi-project**: Automatic detection of current project
+- 📋 **Traceability**: Automatic headers in code to link functional ↔ technical
+- 🚀 **Zero config per project**: One global configuration for all your projects
 
-## 🎯 Cas d'usage
+## 🎯 Use Case
 
-**Avant NotionDev :**
+**Before NotionDev:**
 ```bash
-# Workflow manuel et dispersé
-1. Ouvrir ticket Asana
-2. Chercher la documentation dans Notion  
-3. Copier-coller des specs dans Cursor
-4. Coder sans contexte complet
-5. Le code ne référence pas directement les spécifications implémentées
+# Manual and scattered workflow
+1. Open Asana ticket
+2. Search for documentation in Notion  
+3. Copy-paste specs into Cursor
+4. Code without complete context
+5. Code doesn't directly reference implemented specifications
 ```
 
-**Avec NotionDev :**
+**With NotionDev:**
 ```bash
-# Workflow automatisé et intégré
+# Automated and integrated workflow
 notion-dev work TASK-123456789
-# → Charge automatiquement tout le contexte dans Cursor
-# → Prêt à coder avec l'IA 
-# Le code généré mentionne les features implémentées
+# → Automatically loads entire context into Cursor
+# → Ready to code with AI 
+# Generated code mentions implemented features
 ```
 
-## 📋 Prérequis
+## 📋 Prerequisites
 
 - **Python 3.9+**
 - **macOS**
-- **Accès APIs** : Notion + Asana
-- **Structure Notion** : Databases "Modules" et "Features" avec codes features
+- **API Access**: Notion + Asana
+- **Notion Structure**: "Modules" and "Features" databases with feature codes
 
-### Structure Notion requise
+### Required Notion Structure
 
-Pour fonctionner, votre workspace Notion doit contenir 2 databases avec les attributs ci-dessous (attention à la casse) :
+For NotionDev to work, your Notion workspace must contain 2 databases with the attributes below (case-sensitive):
 
-**Database "Modules" :**
-- `name` (Title) : Nom du module
-- `description` (Text) : Description courte  
-- `status` (Select) : draft, review, validated, obsolete
-- `application` (Select) : service, backend, frontend
-- `code_prefix` (Text) : Préfixe des codes features (AU, DA, API...)
+**"Modules" Database:**
+- `name` (Title): Module name
+- `description` (Text): Short description  
+- `status` (Select): draft, review, validated, obsolete
+- `application` (Select): service, backend, frontend
+- `code_prefix` (Text): Feature code prefix (AU, DA, API...)
 
-**Database "Features" :**
-- `code` (Text) : Code unique (AU01, DA02...)
-- `name` (Title) : Nom de la feature
-- `status` (Select) : draft, review, validated, obsolete
-- `module` (Relation) : Lien vers le module parent
-- `plan` (Multi-select) : Plans de souscription  
-- `user_rights` (Multi-select) : Droits d'accès
+**"Features" Database:**
+- `code` (Text): Unique code (AU01, DA02...)
+- `name` (Title): Feature name
+- `status` (Select): draft, review, validated, obsolete
+- `module` (Relation): Link to parent module
+- `plan` (Multi-select): Subscription plans  
+- `user_rights` (Multi-select): Access rights
 
 ## 🚀 Installation
 
-### Installation automatique
+### Automatic Installation
 
 ```bash
-# 1. Cloner le repository
-git clone https://github.com/votre-org/notion-dev.git
+# 1. Clone the repository
+git clone https://github.com/your-org/notion-dev.git
 cd notion-dev
 
-# 2. Lancer l'installation
+# 2. Run installation
 chmod +x install_notion_dev.sh
 ./install_notion_dev.sh
 ```
 
-Le script d'installation va :
-- ✅ Vérifier Python 3.9+
-- ✅ Créer un environnement virtuel
-- ✅ Installer toutes les dépendances
-- ✅ Configurer l'alias global `notion-dev`
-- ✅ Créer le template de configuration
+The installation script will:
+- ✅ Check Python 3.9+
+- ✅ Create a virtual environment
+- ✅ Install all dependencies
+- ✅ Configure the global `notion-dev` alias
+- ✅ Create the configuration template
 
 ### Configuration
 
-#### 1. Récupérer les tokens API
+#### 1. Get API Tokens
 
-**🔑 Token Notion :**
-1. Aller sur https://www.notion.so/my-integrations
-2. Créer une nouvelle intégration "NotionDev"
-3. Copier le token (commence par `secret_`)
-4. Récupérer les ID des databases pour les modules et les features
-   URL : `notion.so/workspace/[DATABASE_ID]?v=...`
+**🔑 Notion Token:**
+1. Go to https://www.notion.so/my-integrations
+2. Create a new "NotionDev" integration
+3. Copy the token (starts with `secret_`)
+4. Get the database IDs for modules and features
+   URL: `notion.so/workspace/[DATABASE_ID]?v=...`
 
-**🔑 Token Asana :**
-1. Aller sur https://app.asana.com/0/my-apps
-2. Créer un "Personal Access Token"
-3. Copier le token généré
-4. Récupérer l'ID de votre workspace
-5. récupérer l'ID de votre compte utilisateur
+**🔑 Asana Token:**
+1. Go to https://app.asana.com/0/my-apps
+2. Create a "Personal Access Token"
+3. Copy the generated token
+4. Get your workspace ID
+5. Get your user account ID
 
-#### 2. Configurer le fichier config.yml
+#### 2. Configure config.yml
 
 ```bash
-# Copier le template
+# Copy the template
 cp ~/.notion-dev/config.example.yml ~/.notion-dev/config.yml
 
-# Éditer avec vos tokens
+# Edit with your tokens
 nano ~/.notion-dev/config.yml
 ```
 
 ```yaml
 notion:
-  token: "secret_VOTRE_TOKEN_NOTION"
+  token: "secret_YOUR_NOTION_TOKEN"
   database_modules_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  
   database_features_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 asana:
-  access_token: "x/VOTRE_TOKEN_ASANA"
+  access_token: "x/YOUR_ASANA_TOKEN"
   workspace_gid: "1234567890123456"
   user_gid: "1234567890123456"
 ```
 
-#### 3. Tester l'installation
+#### 3. Test Installation
 
 ```bash
-# Test complet de la configuration
+# Complete configuration test
 ~/notion-dev-install/test_config.sh
 
-# Premier test
+# First test
 notion-dev tickets
 ```
 
-## 📖 Utilisation
+## 📖 Usage
 
-### Commandes principales
+### Main Commands
 
 ```bash
-# Voir les infos du projet courant
+# View current project info
 notion-dev info
 
-# Lister vos tickets Asana assignés  
+# List your assigned Asana tickets  
 notion-dev tickets
 
-# Travailler sur un ticket spécifique
+# Work on a specific ticket
 notion-dev work TASK-123456789
 
-# Récupérer le contexte pour une feature
-# autre que celle inscrite dans le ticket Asana
+# Get context for a feature
+# other than the one in the Asana ticket
 notion-dev context --feature AU01
 
-# Enregistrer un commentaire au ticket dans Asana
-notion-dev comment "Ceci est un commentaire"
+# Record a comment on the ticket in Asana
+notion-dev comment "This is a comment"
 
-# Marquer le travail terminé
-# L'action assigne le ticket à la personne qui l'a créé
+# Mark work as completed
+# This action assigns the ticket to the person who created it
 notion-dev done
 
-# Mode interactif
+# Interactive mode
 notion-dev interactive
 ```
 
-### Workflow développeur type
+### Typical Developer Workflow
 
-Pour comprendre l'esprit de NotionDev, voici un exemple de workflow de travail.
-Dans cet exemple on considère que la documentation a été validée dans Notion (Definition of Ready), et que les tickets Asana ont été inscrits au sprint courant, assignés aux développeurs.
-Nous nous mettons ici dans la peau d'un développeur.
+To understand the spirit of NotionDev, here's an example workflow.
+In this example, we assume documentation has been validated in Notion (Definition of Ready), and Asana tickets have been added to the current sprint, assigned to developers.
+We put ourselves in the developer's shoes.
 
-#### 🌅 Matin - Choisir son ticket
+#### 🌅 Morning - Choose Your Ticket
 
 ```bash
-cd ~/projets/mon-saas-frontend
+cd ~/projects/my-saas-frontend
 notion-dev tickets
 ```
 
 ```
-                    Mes Tickets Asana                    
+                    My Asana Tickets                    
 ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
-┃ ID      ┃ Nom                             ┃ Feature     ┃ St atut      ┃
+┃ ID      ┃ Name                             ┃ Feature     ┃ Status      ┃
 ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━┩
-│ 23456789│ Implémenter SSO Google          │ AU02        │ 🔄 En c ours │
-│ 34567890│ Dashboard analytics             │ DA01        │ 🔄 En c ours │
+│ 23456789│ Implement Google SSO             │ AU02        │ 🔄 In progress │
+│ 34567890│ Dashboard analytics              │ DA01        │ 🔄 In progress │
 └─────────┴────────────────────────────────┴─────────────┴─────────────┘
 ```
 
-#### 🎯 Démarrer le travail
+#### 🎯 Start Working
 
 ```bash
 notion-dev work 23456789
 ```
 
 ```
-📋 Ticket Asana
-AU02 - Implémenter SSO Google
+📋 Asana Ticket
+AU02 - Implement Google SSO
 
 ID: 1234567890123456
 Feature Code: AU02
-Status: 🔄 En cours
-Projet: mon-saas-frontend
+Status: 🔄 In progress
+Project: my-saas-frontend
 
 🎯 Feature
 AU02 - SSO Google Login
@@ -217,50 +217,50 @@ Status: validated
 Plans: premium
 User Rights: standard, admin
 
-Exporter le contexte vers Cursor? [Y/n]: y
-✅ Contexte exporté vers /Users/dev/projets/mon-saas-frontend/.cursor/
-💡 Vous pouvez maintenant ouvrir Cursor et commencer à coder!
+Export context to Cursor? [Y/n]: y
+✅ Context exported to /Users/dev/projects/my-saas-frontend/.cursor/
+💡 You can now open Cursor and start coding!
 ```
 
-#### 💻 Développer avec Cursor
+#### 💻 Develop with Cursor
 
 ```bash
-# Ouvrir Cursor avec le contexte chargé
+# Open Cursor with loaded context
 cursor .
 ```
 
-Le contexte IA contient automatiquement :
-- ✅ Spécifications complètes de la feature AU02
-- ✅ Documentation du module User Authentication  
-- ✅ Standards de code avec headers obligatoires
-- ✅ Instructions pour l'IA adaptées au projet
+The AI context automatically contains:
+- ✅ Complete specifications for feature AU02
+- ✅ User Authentication module documentation  
+- ✅ Code standards with mandatory headers
+- ✅ AI instructions adapted to the project
 
-#### 🔄 Changer de projet
+#### 🔄 Switch Projects
 
 ```bash
-# Passer à un autre projet - détection automatique
-cd ~/projets/mon-saas-api
+# Switch to another project - automatic detection
+cd ~/projects/my-saas-api
 notion-dev info
 ```
 
 ```
-📊 Projet: mon-saas-api
-Nom: mon-saas-api
-Chemin: /Users/dev/projets/mon-saas-api
-Cache: /Users/dev/projets/mon-saas-api/.notion-dev
-Git Repository: ✅ Oui
+📊 Project: my-saas-api
+Name: my-saas-api
+Path: /Users/dev/projects/my-saas-api
+Cache: /Users/dev/projects/my-saas-api/.notion-dev
+Git Repository: ✅ Yes
 ```
 
-### Headers de traçabilité
+### Traceability Headers
 
-Dans le contexte chargé dans le dossier /.cursor, NotionDev ajoute des instructions pour que l'agent IA insère automatiquement un header dans chaque fichier du projet avec le code de la feature.
-L'objectif est de vérifier la couverture fonctionnelle du code, et d'éviter les regression puisque l'agent IA a pour intstruction de ne pas modifier le code correspondant à une feature autre que celle en cours de travail.
+In the context loaded in the /.cursor folder, NotionDev adds instructions for the AI agent to automatically insert a header in each project file with the feature code.
+The goal is to verify functional code coverage and avoid regressions since the AI agent has instructions not to modify code corresponding to a feature other than the one being worked on.
 
 ```typescript
 /**
  * NOTION FEATURES: AU02
  * MODULES: User Authentication
- * DESCRIPTION: Service d'authentification Google OAuth
+ * DESCRIPTION: Google OAuth authentication service
  * LAST_SYNC: 2025-01-15
  */
 export class GoogleAuthService {
@@ -270,117 +270,117 @@ export class GoogleAuthService {
 
 ## 🏗️ Architecture
 
-### Multi-projets automatique
+### Automatic Multi-project
 
-NotionDev détecte automatiquement le projet depuis le dossier courant :
+NotionDev automatically detects the project from the current directory:
 
 ```bash
-~/projets/
+~/projects/
 ├── saas-frontend/          # notion-dev → Context "saas-frontend"
-│   └── .notion-dev/        # Cache isolé
+│   └── .notion-dev/        # Isolated cache
 ├── saas-api/              # notion-dev → Context "saas-api"  
-│   └── .notion-dev/        # Cache isolé
+│   └── .notion-dev/        # Isolated cache
 └── saas-admin/            # notion-dev → Context "saas-admin"
-    └── .notion-dev/        # Cache isolé
+    └── .notion-dev/        # Isolated cache
 ```
 
-## ⚙️ Configuration avancée
+## ⚙️ Advanced Configuration
 
-### Optimisation pour votre IA
+### Optimization for Your AI
 
 ```yaml
 ai:
-  # Pour Claude Opus/Sonnet (recommandé)
+  # For Claude Opus/Sonnet (recommended)
   context_max_length: 100000
   include_code_examples: true
   
-  # Pour GPT-3.5 (plus limité)
+  # For GPT-3.5 (more limited)
   context_max_length: 32000
   include_code_examples: false
 ```
 
-### Alias shell personnalisé
+### Custom Shell Aliases
 
 ```bash
-# Dans ~/.zshrc ou ~/.bash_profile
+# In ~/.zshrc or ~/.bash_profile
 alias nd="notion-dev"
 alias ndt="notion-dev tickets"
 alias ndw="notion-dev work"
 alias ndi="notion-dev info"
 ```
 
-## 🔧 Dépannage
+## 🔧 Troubleshooting
 
-### Erreurs courantes
+### Common Errors
 
-**❌ "Configuration invalide"**
+**❌ "Invalid configuration"**
 ```bash
-# Vérifier les tokens
+# Check tokens
 notion-dev info
-# Retester la config
+# Retest config
 ~/notion-dev-install/test_config.sh
 ```
 
-### Logs de debug
+### Debug Logs
 
 ```bash
-# Voir les logs détaillés
+# View detailed logs
 tail -f ~/.notion-dev/notion-dev.log
 
-# Debug avec niveau verbose
+# Debug with verbose level
 export NOTION_DEV_LOG_LEVEL=DEBUG
 notion-dev tickets
 ```
 
-## 🤝 Contribution
+## 🤝 Contributing
 
-### Développement local
+### Local Development
 
 ```bash
-# Cloner et installer en mode développement
-git clone https://github.com/votre-org/notion-dev.git
+# Clone and install in development mode
+git clone https://github.com/your-org/notion-dev.git
 cd notion-dev
 python -m venv venv
 source venv/bin/activate
 pip install -e .
 ```
 
-### Structure du projet
+### Project Structure
 
 ```
 notion-dev/
 ├── notion_dev/
-│   ├── core/              # Logique métier
-│   │   ├── config.py      # Configuration multi-projets
-│   │   ├── asana_client.py # Client Asana API
-│   │   ├── notion_client.py # Client Notion API
-│   │   └── context_builder.py # Générateur contexte IA
+│   ├── core/              # Business logic
+│   │   ├── config.py      # Multi-project configuration
+│   │   ├── asana_client.py # Asana API client
+│   │   ├── notion_client.py # Notion API client
+│   │   └── context_builder.py # AI context generator
 │   ├── cli/
-│   │   └── main.py        # Interface CLI
-│   └── models/            # Modèles de données
-├── install_notion_dev.sh  # Script d'installation
+│   │   └── main.py        # CLI interface
+│   └── models/            # Data models
+├── install_notion_dev.sh  # Installation script
 └── README.md
 ```
 
 ## 📝 Changelog
 
 ### v1.0.0 (2025-01-26)
-- ✅ Version initiale
-- ✅ Support multi-projets automatique
-- ✅ Intégration Notion + Asana + Cursor
-- ✅ Headers de traçabilité automatiques
-- ✅ Client Asana API 5.2.0 compatible
+- ✅ Initial release
+- ✅ Automatic multi-project support
+- ✅ Notion + Asana + Cursor integration
+- ✅ Automatic traceability headers
+- ✅ Asana API 5.2.0 compatible client
 
 ## 📄 License
 
-MIT License - voir [LICENSE](LICENSE) pour plus de détails.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ## 💬 Support
 
-- **Issues** : [GitHub Issues](https://github.com/votre-org/notion-dev/issues)
-- **Documentation** : [Wiki](https://github.com/votre-org/notion-dev/wiki)
-- **Discussions** : [GitHub Discussions](https://github.com/votre-org/notion-dev/discussions)
+- **Issues**: [GitHub Issues](https://github.com/your-org/notion-dev/issues)
+- **Documentation**: [Wiki](https://github.com/your-org/notion-dev/wiki)
+- **Discussions**: [GitHub Discussions](https://github.com/your-org/notion-dev/discussions)
 
 ---
 
-**Développé avec ❤️ pour accélérer le développement avec l'IA**
+**Developed with ❤️ to accelerate AI-assisted development**
