@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notion-dev"
-version = "1.0.2"
+version = "1.0.3"
 description = "Integration tool for Notion, Asana and Git workflows"
 readme = "README.md"
 authors = [
@@ -74,7 +74,7 @@ extend-ignore = ["E203", "W503"]
 exclude = [".git", "__pycache__", "build", "dist"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "1.0.3"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
