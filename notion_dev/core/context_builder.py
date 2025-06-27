@@ -1,9 +1,11 @@
 # notion_dev/core/context_builder.py
 from typing import Dict, Optional, List
+from datetime import datetime
 from .models import Feature, AsanaTask
 from .notion_client import NotionClient
 from .config import Config
 import os
+import shutil
 import logging
 
 logger = logging.getLogger(__name__)
@@ -131,7 +133,6 @@ Avant de proposer du code, vérifier :
     
     def _get_current_date(self) -> str:
         """Retourne la date actuelle au format YYYY-MM-DD"""
-        from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d")
     
     def _truncate_content(self, content: str, max_length: int) -> str:
@@ -159,7 +160,6 @@ Avant de proposer du code, vérifier :
     
     def _build_cursorrules_content(self, context: Dict) -> str:
         """Build content for .cursorrules file with enhanced context"""
-        from datetime import datetime
         feature = context['feature']
         project_info = context['project_info']
         task = context.get('task', None)
@@ -261,9 +261,8 @@ Every new file you create MUST start with:
             # Clean up old .cursor directory if it exists
             cursor_dir = os.path.join(project_path, ".cursor")
             if os.path.exists(cursor_dir):
-                import shutil
                 shutil.rmtree(cursor_dir)
-                logger.info(f"Cleaned up legacy .cursor directory")
+                logger.info("Cleaned up legacy .cursor directory")
             
             # Build .cursorrules content
             cursorrules_content = self._build_cursorrules_content(context)
@@ -280,7 +279,7 @@ Every new file you create MUST start with:
                 f.write(cursorrules_content)
             
             final_size = len(cursorrules_content)
-            logger.info(f".cursorrules created: {final_size} chars" + 
+            logger.info(f".cursorrules created: {final_size} chars" +
                        (f" (truncated from {original_size})" if original_size > max_length else ""))
             
             return True
