@@ -13,6 +13,8 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.release.tag_name }}
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -38,6 +40,13 @@ jobs:
     
     - name: Build package
       run: python -m build
+    
+    - name: List built packages
+      run: |
+        echo "Built packages:"
+        ls -la dist/
+        echo "Package contents:"
+        unzip -l dist/*.whl | grep __init__.py
     
     - name: Check package
       run: twine check dist/*

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notion-dev"
-version = "1.0.0"
+version = "1.0.2"
 description = "Integration tool for Notion, Asana and Git workflows"
 readme = "README.md"
 authors = [
