@@ -67,6 +67,7 @@ notion-dev-install/
 *.log
 config.yml
 .cursor/
+.cursorrules
 .claude/
 
 # OS

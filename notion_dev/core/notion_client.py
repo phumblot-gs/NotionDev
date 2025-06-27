@@ -28,7 +28,7 @@ class NotionClient:
             raise
     
     def _extract_page_content(self, page_id: str) -> str:
-        """Extrait le contenu texte d'une page Notion"""
+        """Extract page content preserving Markdown formatting"""
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
         
         try:
@@ -37,26 +37,90 @@ class NotionClient:
             
             for block in response.get('results', []):
                 block_type = block.get('type')
-                if block_type in ['paragraph', 'heading_1', 'heading_2', 'heading_3']:
-                    text_content = self._extract_text_from_block(block)
+                
+                if block_type == 'paragraph':
+                    text_content = self._extract_text_from_block(block, preserve_formatting=True)
                     if text_content:
                         content_blocks.append(text_content)
-                elif block_type == 'bulleted_list_item':
+                        
+                elif block_type == 'heading_1':
                     text_content = self._extract_text_from_block(block)
                     if text_content:
-                        content_blocks.append(f"• {text_content}")
+                        content_blocks.append(f"# {text_content}")
+                        
+                elif block_type == 'heading_2':
+                    text_content = self._extract_text_from_block(block)
+                    if text_content:
+                        content_blocks.append(f"## {text_content}")
+                        
+                elif block_type == 'heading_3':
+                    text_content = self._extract_text_from_block(block)
+                    if text_content:
+                        content_blocks.append(f"### {text_content}")
+                        
+                elif block_type == 'bulleted_list_item':
+                    text_content = self._extract_text_from_block(block, preserve_formatting=True)
+                    if text_content:
+                        content_blocks.append(f"- {text_content}")
+                        
+                elif block_type == 'numbered_list_item':
+                    text_content = self._extract_text_from_block(block, preserve_formatting=True)
+                    if text_content:
+                        content_blocks.append(f"1. {text_content}")
+                        
+                elif block_type == 'code':
+                    code_content = self._extract_text_from_block(block)
+                    language = block.get('code', {}).get('language', '')
+                    if code_content:
+                        content_blocks.append(f"```{language}\n{code_content}\n```")
+                        
+                elif block_type == 'quote':
+                    text_content = self._extract_text_from_block(block, preserve_formatting=True)
+                    if text_content:
+                        content_blocks.append(f"> {text_content}")
+                        
+                elif block_type == 'divider':
+                    content_blocks.append("---")
                         
             return "\n\n".join(content_blocks)
         except Exception as e:
             logger.warning(f"Could not extract content for page {page_id}: {e}")
             return ""
     
-    def _extract_text_from_block(self, block: Dict) -> str:
-        """Extrait le texte d'un bloc Notion"""
+    def _extract_text_from_block(self, block: Dict, preserve_formatting: bool = False) -> str:
+        """Extract text from Notion block with optional markdown formatting"""
         block_type = block.get('type')
         if block_type and block_type in block:
             text_array = block[block_type].get('rich_text', [])
-            return ''.join([text.get('plain_text', '') for text in text_array])
+            
+            if not preserve_formatting:
+                return ''.join([text.get('plain_text', '') for text in text_array])
+            
+            # Preserve markdown formatting
+            formatted_texts = []
+            for text in text_array:
+                plain = text.get('plain_text', '')
+                if not plain:
+                    continue
+                    
+                # Apply formatting based on annotations
+                annotations = text.get('annotations', {})
+                if annotations.get('bold'):
+                    plain = f"**{plain}**"
+                if annotations.get('italic'):
+                    plain = f"*{plain}*"
+                if annotations.get('strikethrough'):
+                    plain = f"~~{plain}~~"
+                if annotations.get('code'):
+                    plain = f"`{plain}`"
+                    
+                # Handle links
+                if text.get('href'):
+                    plain = f"[{plain}]({text['href']})"
+                    
+                formatted_texts.append(plain)
+                
+            return ''.join(formatted_texts)
         return ""
     
     def get_feature(self, code: str) -> Optional[Feature]:

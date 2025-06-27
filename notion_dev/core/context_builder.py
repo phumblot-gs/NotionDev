@@ -134,48 +134,164 @@ Avant de proposer du code, vérifier :
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d")
     
-    def export_to_cursor(self, context: Dict, custom_path: Optional[str] = None) -> bool:
-        """Exporte le contexte vers les fichiers Cursor"""
-        # Utiliser le chemin custom ou le repository path courant
+    def _truncate_content(self, content: str, max_length: int) -> str:
+        """Truncate content to fit within max_length while preserving structure"""
+        if len(content) <= max_length:
+            return content
+        
+        # Reserve space for truncation notice
+        truncation_notice = "\n\n---\n*[Content truncated to fit context limits]*"
+        available_length = max_length - len(truncation_notice)
+        
+        # Try to truncate at a meaningful boundary
+        truncated = content[:available_length]
+        
+        # Look for good truncation points (in order of preference)
+        boundaries = ['\n## ', '\n### ', '\n\n', '\n', '. ', ' ']
+        
+        for boundary in boundaries:
+            last_pos = truncated.rfind(boundary)
+            if last_pos > available_length * 0.7:  # If found in last 30%
+                truncated = truncated[:last_pos]
+                break
+        
+        return truncated + truncation_notice
+    
+    def _build_cursorrules_content(self, context: Dict) -> str:
+        """Build content for .cursorrules file with enhanced context"""
+        from datetime import datetime
+        feature = context['feature']
+        project_info = context['project_info']
+        task = context.get('task', None)
+        
+        # Build the comprehensive .cursorrules content
+        content = f"""# NotionDev Context - {project_info['name']}
+# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+## ⚠️ CRITICAL PROJECT CONTEXT
+
+This is a large-scale project with multiple modules, each containing multiple features.
+You are currently working on ONE SPECIFIC FEATURE. This is crucial to understand:
+
+### Project Structure
+- **Project**: {project_info['name']} (multi-module application)
+- **Total Modules**: Multiple interconnected modules
+- **Total Features**: Each module contains numerous features
+- **Your Scope**: LIMITED to feature **{feature.code}** in module **{feature.module_name}**
+
+### Regression Prevention Rules
+
+**MANDATORY**: To prevent regressions across the codebase:
+
+1. **Feature Isolation**: You are ONLY authorized to work on feature **{feature.code}**
+2. **File Headers Check**: EVERY file has a header indicating which feature it implements
+3. **Modification Rules**:
+   - ✅ CREATE new files: MUST add the header for feature {feature.code}
+   - ✅ MODIFY files: ONLY if header contains feature {feature.code}
+   - ❌ NEVER modify files with different feature codes
+   - ❌ NEVER remove or alter existing feature headers
+
+### Why This Matters
+- Each feature has been carefully isolated to prevent side effects
+- Modifying code from other features WILL cause regressions
+- The `.cursorrules` file intentionally shows ONLY your current feature
+- This limitation is by design to maintain code stability
+
+## Active Development
+
+**Feature**: {feature.code} - {feature.name}  
+**Module**: {feature.module_name}  
+**Status**: {feature.status}"""
+
+        if task:
+            content += f"\n**Task**: {task.gid} - {task.name}"
+        
+        content += f"""
+**Scope**: This feature only - no cross-feature modifications allowed
+
+## Mandatory Headers
+
+### For New Files
+Every new file you create MUST start with:
+```
+/**
+ * NOTION FEATURES: {feature.code}
+ * MODULES: {feature.module_name}
+ * DESCRIPTION: [Brief description of file purpose]
+ * LAST_SYNC: {self._get_current_date()}
+ */
+```
+
+### Before Modifying Existing Files
+1. CHECK the file header for NOTION FEATURES
+2. ONLY proceed if it contains "{feature.code}"
+3. If multiple features listed, ensure {feature.code} is included
+4. NEVER modify if {feature.code} is not present
+
+## Development Rules
+
+1. **Scope Enforcement**: Work ONLY on feature {feature.code}
+2. **Header Compliance**: ALL files must have proper headers
+3. **No Cross-Feature Changes**: Respect feature boundaries
+4. **Existing Code**: Read headers before ANY modification
+5. **Pattern Following**: Maintain consistency within {feature.module_name}
+
+## Feature Specification
+
+{feature.get_full_context()}
+
+## Project Information
+- **Repository**: {project_info['path']}
+- **Git Status**: {'Git repository' if project_info['is_git_repo'] else 'Not a git repository'}
+- **Cache Location**: {project_info['cache']}
+
+---
+*NotionDev - Keeping your code aligned with specifications*
+"""
+        return content
+    
+    def export_to_cursorrules(self, context: Dict, custom_path: Optional[str] = None) -> bool:
+        """Export context to .cursorrules file only (new standard)"""
         project_path = custom_path or self.config.repository_path
         
         try:
+            # Get max context length from config
+            max_length = getattr(self.config.ai, 'context_max_length', 100000) if hasattr(self.config, 'ai') else 100000
+            
+            # Clean up old .cursor directory if it exists
             cursor_dir = os.path.join(project_path, ".cursor")
-            os.makedirs(cursor_dir, exist_ok=True)
+            if os.path.exists(cursor_dir):
+                import shutil
+                shutil.rmtree(cursor_dir)
+                logger.info(f"Cleaned up legacy .cursor directory")
             
-            # Fichier rules.md
-            rules_path = os.path.join(cursor_dir, "rules.md")
-            with open(rules_path, 'w', encoding='utf-8') as f:
-                f.write(context['cursor_rules'])
+            # Build .cursorrules content
+            cursorrules_content = self._build_cursorrules_content(context)
             
-            # Fichier context.md
-            context_path = os.path.join(cursor_dir, "context.md")
-            with open(context_path, 'w', encoding='utf-8') as f:
-                f.write(context['ai_instructions'])
+            # Check size and truncate if needed
+            original_size = len(cursorrules_content)
+            if original_size > max_length:
+                logger.warning(f"Context size ({original_size}) exceeds limit ({max_length}), truncating...")
+                cursorrules_content = self._truncate_content(cursorrules_content, max_length)
             
-            # Fichier project-info.md avec infos du projet
-            project_info_path = os.path.join(cursor_dir, "project-info.md")
-            project_info = context['project_info']
-            with open(project_info_path, 'w', encoding='utf-8') as f:
-                f.write(f"""# Projet: {project_info['name']}
-
-## Informations
-- **Path:** {project_info['path']}
-- **Cache:** {project_info['cache']}
-- **Git Repository:** {'Oui' if project_info['is_git_repo'] else 'Non'}
-
-## Feature Actuelle
-- **Code:** {context['feature'].code}
-- **Nom:** {context['feature'].name}
-- **Module:** {context['feature'].module_name}
-
-*Généré automatiquement par NotionDev*
-""")
+            # Write .cursorrules at project root
+            cursorrules_path = os.path.join(project_path, ".cursorrules")
+            with open(cursorrules_path, 'w', encoding='utf-8') as f:
+                f.write(cursorrules_content)
             
-            logger.info(f"Context exported to {cursor_dir}")
+            final_size = len(cursorrules_content)
+            logger.info(f".cursorrules created: {final_size} chars" + 
+                       (f" (truncated from {original_size})" if original_size > max_length else ""))
+            
             return True
             
         except Exception as e:
-            logger.error(f"Error exporting context: {e}")
+            logger.error(f"Error creating .cursorrules: {e}")
             return False
+    
+    # Keep old method for backward compatibility but deprecate it
+    def export_to_cursor(self, context: Dict, custom_path: Optional[str] = None) -> bool:
+        """DEPRECATED: Use export_to_cursorrules instead"""
+        logger.warning("export_to_cursor is deprecated, using export_to_cursorrules instead")
+        return self.export_to_cursorrules(context, custom_path)
 

@@ -408,13 +408,14 @@ def work(ctx, task_id):
     
     # Export vers Cursor (forcé à la racine du projet)
     if Confirm.ask("Exporter le contexte vers Cursor?", default=True):
-        with console.status("[bold green]Export vers Cursor..."):
+        with console.status("[bold green]Export vers .cursorrules..."):
             # Force export to project root, not current directory
-            success = context_builder.export_to_cursor(context, project_info['path'])
+            success = context_builder.export_to_cursorrules(context, project_info['path'])
         
         if success:
-            console.print(f"[green]✅ Contexte exporté vers {project_info['path']}/.cursor/[/green]")
+            console.print(f"[green]✅ Contexte exporté vers {project_info['path']}/.cursorrules[/green]")
             console.print("[yellow]💡 Vous pouvez maintenant ouvrir Cursor et commencer à coder![/yellow]")
+            console.print("[dim]Le fichier .cursorrules sera automatiquement chargé par Cursor[/dim]")
         else:
             console.print("[red]❌ Erreur lors de l'export[/red]")
 
