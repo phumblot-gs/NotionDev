@@ -6,8 +6,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
-from rich import print as rprint
-from rich.tree import Tree
 from ..core.config import Config
 from ..core.notion_client import NotionClient
 from ..core.asana_client import AsanaClient
@@ -324,7 +322,7 @@ def work(ctx, task_id):
                 if success:
                     console.print(f"[dim]✅ Commentaire de transition ajouté au ticket {previous_task_id[-8:]}[/dim]")
                 else:
-                    console.print(f"[dim]⚠️ Impossible d'ajouter le commentaire de transition[/dim]")
+                    console.print("[dim]⚠️ Impossible d'ajouter le commentaire de transition[/dim]")
     
     # Add comment to indicate working on the new task
     with console.status("[bold green]Ajout du commentaire 'is working on it'..."):
@@ -477,7 +475,7 @@ def done(ctx):
         console.print("[red]❌ Impossible d'ajouter le commentaire de fin[/red]")
     
     if reassign_success:
-        console.print(f"[green]✅ Ticket réassigné au créateur[/green]")
+        console.print("[green]✅ Ticket réassigné au créateur[/green]")
     elif task.created_by_gid:
         console.print("[yellow]⚠️ Impossible de réassigner le ticket[/yellow]")
     else:
@@ -578,6 +576,7 @@ def interactive(ctx):
         elif choice == "5":
             console.print("[green]👋 À bientôt![/green]")
             break
+
 
 if __name__ == '__main__':
     cli()

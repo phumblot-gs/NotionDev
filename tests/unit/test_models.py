@@ -1,5 +1,4 @@
-import pytest
-from notion_dev.core.models import AsanaTask, Feature, Module
+from notion_dev.core.models import AsanaTask, Feature
 
 
 class TestAsanaTask:

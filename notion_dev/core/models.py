@@ -69,19 +69,6 @@ class Feature:
             
         return context
 
-@dataclass
-class AsanaProject:
-    gid: str
-    name: str
-    created_at: datetime
-    color: Optional[str] = None
-    
-    def __post_init__(self):
-        # Convertir string en datetime si nécessaire
-        if isinstance(self.created_at, str):
-            # Format Asana : "2023-01-15T10:30:00.000Z"
-            self.created_at = datetime.fromisoformat(self.created_at.replace('Z', '+00:00'))
-
 @dataclass 
 class AsanaTask:
     gid: str
