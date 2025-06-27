@@ -1,7 +1,9 @@
 # notion_dev/cli/main.py - Mise à jour pour affichage groupé
 import click
 import logging
+import logging.handlers
 import requests
+from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Prompt, Confirm
@@ -13,10 +15,38 @@ from ..core.context_builder import ContextBuilder
 from collections import defaultdict
 
 console = Console()
-
-# Configuration du logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def setup_logging(config: Config):
+    """Configure logging with rotation"""
+    log_file = Path.home() / ".notion-dev" / config.logging.file
+    log_file.parent.mkdir(exist_ok=True)
+    
+    # Remove existing handlers
+    root_logger = logging.getLogger()
+    root_logger.handlers = []
+    
+    # Create rotating file handler (max 10MB, keep 5 backups)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setFormatter(
+        logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    )
+    
+    # Console handler for errors only
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.ERROR)
+    
+    # Configure root logger
+    root_logger.setLevel(getattr(logging, config.logging.level))
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+
 
 @click.group()
 @click.option('--config', default=None, help='Path to config file')
@@ -26,6 +56,9 @@ def cli(ctx, config):
     try:
         ctx.ensure_object(dict)
         ctx.obj['config'] = Config.load(config)
+        
+        # Setup logging with rotation
+        setup_logging(ctx.obj['config'])
         
         # Validation de la config
         if not ctx.obj['config'].validate():

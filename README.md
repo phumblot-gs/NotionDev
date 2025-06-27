@@ -1,9 +1,16 @@
 # NotionDev
 
 > **Intégration Notion ↔ Asana ↔ Git pour développeurs**  
-> Accélérez votre développement avec un contexte IA automatique depuis vos spécifications Notion
+> Accélérez votre développement avec un contexte IA chargé automatiquement depuis vos spécifications Notion
 
-NotionDev permet aux développeurs de charger automatiquement le contexte complet de leurs features depuis Notion directement dans leur IDE (Cursor), tout en synchronisant avec leurs tickets Asana.
+NotionDev est adapté aux grands projets qui nécessitent de concentrer les agents IA sur un context présenté de manière très précise pour éviter les régressions sur le code.
+Nous implémentons un workflow avec un context switching automatique, qui s'appuie sur vos spécifications.
+Pour cela nous supposons que votre application est organisée en modules, et vos modules en features. Nous supposons aussi que vos modules et vos features sont documentées dans deux bases Notion.
+
+NotionDev permet aux développeurs de charger automatiquement le contexte complet de leurs features depuis Notion directement dans les rules de leur IDE (Cursor), tout en synchronisant avec les tickets Asana qui leur sont assignés.
+Ils peuvent alors commenter les tickets Asana, taguer leur code avec les features implémentées, et réassigner un ticket à la personne qui l'a créée lorsque le travail est terminé.
+
+NotionDev fonctionne dans un environnement multi-projets : vous pouvez avoir en local plusieurs projets git, vous pouvez travailler des features distinctes dans chaque projet.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.9+-green.svg)
@@ -11,7 +18,7 @@ NotionDev permet aux développeurs de charger automatiquement le contexte comple
 
 ## ✨ Fonctionnalités
 
-- 🎯 **Workflow intégré** : Ticket Asana → Documentation Notion → Contexte IA → Code
+- 🎯 **Workflow intégré** : Ticket Asana +  Documentation Notion → Contexte IA → Code
 - 🤖 **IA Context automatique** : Export direct vers Cursor avec specs complètes
 - 🔄 **Multi-projets** : Détection automatique du projet courant
 - 📋 **Traçabilité** : Headers automatiques dans le code pour lier fonctionnel ↔ technique
@@ -26,7 +33,7 @@ NotionDev permet aux développeurs de charger automatiquement le contexte comple
 2. Chercher la documentation dans Notion  
 3. Copier-coller des specs dans Cursor
 4. Coder sans contexte complet
-5. Oublier de documenter les liens code ↔ fonctionnel
+5. Le code ne référence pas directement les spécifications implémentées
 ```
 
 **Avec NotionDev :**
@@ -34,20 +41,20 @@ NotionDev permet aux développeurs de charger automatiquement le contexte comple
 # Workflow automatisé et intégré
 notion-dev work TASK-123456789
 # → Charge automatiquement tout le contexte dans Cursor
-# → Génère les headers de traçabilité
-# → Prêt à coder avec l'IA !
+# → Prêt à coder avec l'IA 
+# Le code généré mentionne les features implémentées
 ```
 
 ## 📋 Prérequis
 
 - **Python 3.9+**
-- **macOS** (Linux/Windows : bientôt supportés)
+- **macOS**
 - **Accès APIs** : Notion + Asana
 - **Structure Notion** : Databases "Modules" et "Features" avec codes features
 
 ### Structure Notion requise
 
-Votre workspace Notion doit contenir :
+Pour fonctionner, votre workspace Notion doit contenir 2 databases avec les attributs ci-dessous (attention à la casse) :
 
 **Database "Modules" :**
 - `name` (Title) : Nom du module
@@ -93,18 +100,17 @@ Le script d'installation va :
 1. Aller sur https://www.notion.so/my-integrations
 2. Créer une nouvelle intégration "NotionDev"
 3. Copier le token (commence par `secret_`)
-4. Donner accès aux databases "Modules" et "Features"
+4. Récupérer les ID des databases pour les modules et les features
+   URL : `notion.so/workspace/[DATABASE_ID]?v=...`
 
 **🔑 Token Asana :**
 1. Aller sur https://app.asana.com/0/my-apps
 2. Créer un "Personal Access Token"
 3. Copier le token généré
+4. Récupérer l'ID de votre workspace
+5. récupérer l'ID de votre compte utilisateur
 
-**📋 IDs Notion :**
-- Ouvrir votre database → URL : `notion.so/workspace/[DATABASE_ID]?v=...`
-- Copier l'ID pour Modules et Features
-
-#### 2. Configurer le fichier
+#### 2. Configurer le fichier config.yml
 
 ```bash
 # Copier le template
@@ -150,14 +156,26 @@ notion-dev tickets
 # Travailler sur un ticket spécifique
 notion-dev work TASK-123456789
 
-# Générer le contexte pour une feature
+# Récupérer le contexte pour une feature
+# autre que celle inscrite dans le ticket Asana
 notion-dev context --feature AU01
+
+# Enregistrer un commentaire au ticket dans Asana
+notion-dev comment "Ceci est un commentaire"
+
+# Marquer le travail terminé
+# L'action assigne le ticket à la personne qui l'a créé
+notion-dev done
 
 # Mode interactif
 notion-dev interactive
 ```
 
 ### Workflow développeur type
+
+Pour comprendre l'esprit de NotionDev, voici un exemple de workflow de travail.
+Dans cet exemple on considère que la documentation a été validée dans Notion (Definition of Ready), et que les tickets Asana ont été inscrits au sprint courant, assignés aux développeurs.
+Nous nous mettons ici dans la peau d'un développeur.
 
 #### 🌅 Matin - Choisir son ticket
 
@@ -169,17 +187,17 @@ notion-dev tickets
 ```
                     Mes Tickets Asana                    
 ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
-┃ ID      ┃ Nom                            ┃ Feature     ┃ Statut      ┃
+┃ ID      ┃ Nom                             ┃ Feature     ┃ St atut      ┃
 ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━┩
-│ 23456789│ Implémenter SSO Google         │ AU02        │ 🔄 En cours │
-│ 34567890│ Dashboard analytics            │ DA01        │ 🔄 En cours │
+│ 23456789│ Implémenter SSO Google          │ AU02        │ 🔄 En c ours │
+│ 34567890│ Dashboard analytics             │ DA01        │ 🔄 En c ours │
 └─────────┴────────────────────────────────┴─────────────┴─────────────┘
 ```
 
 #### 🎯 Démarrer le travail
 
 ```bash
-notion-dev work 1234567890123456
+notion-dev work 23456789
 ```
 
 ```
@@ -235,7 +253,8 @@ Git Repository: ✅ Oui
 
 ### Headers de traçabilité
 
-NotionDev génère automatiquement des headers dans vos fichiers pour maintenir la traçabilité :
+Dans le contexte chargé dans le dossier /.cursor, NotionDev ajoute des instructions pour que l'agent IA insère automatiquement un header dans chaque fichier du projet avec le code de la feature.
+L'objectif est de vérifier la couverture fonctionnelle du code, et d'éviter les regression puisque l'agent IA a pour intstruction de ne pas modifier le code correspondant à une feature autre que celle en cours de travail.
 
 ```typescript
 /**
@@ -263,18 +282,6 @@ NotionDev détecte automatiquement le projet depuis le dossier courant :
 │   └── .notion-dev/        # Cache isolé
 └── saas-admin/            # notion-dev → Context "saas-admin"
     └── .notion-dev/        # Cache isolé
-```
-
-### Flux de données
-
-```mermaid
-graph LR
-    A[Ticket Asana] --> B[Code Feature]
-    B --> C[Feature Notion]
-    C --> D[Module Notion]
-    D --> E[Contexte IA]
-    E --> F[Cursor]
-    F --> G[Code avec Headers]
 ```
 
 ## ⚙️ Configuration avancée
@@ -313,15 +320,6 @@ notion-dev info
 # Retester la config
 ~/notion-dev-install/test_config.sh
 ```
-
-**❌ "Feature not found"**
-- Vérifier que le code feature existe dans Notion
-- Vérifier le format du code (AU01, DA02...)
-- Vérifier que l'intégration Notion a accès aux databases
-
-**❌ "Module 'asana' has no attribute 'Client'"**
-- Version Asana corrigée dans le script d'installation
-- Réinstaller avec le script mis à jour
 
 ### Logs de debug
 

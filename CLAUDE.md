@@ -98,6 +98,23 @@ The tool requires API tokens for both Notion and Asana, plus database IDs for No
 
 ## Testing
 
-Currently no formal test framework is implemented. Testing is done via:
-- Installation script includes `test_config.sh` for configuration validation
-- Manual testing of CLI commands
+Run tests with pytest:
+```bash
+pytest tests/unit -v
+```
+
+Test coverage includes:
+- Unit tests for models (AsanaTask, Feature)
+- Logging configuration with rotation
+- Feature code extraction from titles/notes
+
+## Logging
+
+NotionDev uses rotating file logs to prevent disk space issues:
+- Log file: `~/.notion-dev/notion-dev.log`
+- Max file size: 10MB
+- Backup count: 5 (keeps last 5 rotated files)
+- Log level: Configurable in config.yml (default: INFO)
+- Console output: Only errors are shown
+
+When the log file reaches 10MB, it's automatically rotated to `notion-dev.log.1`, and a new `notion-dev.log` is created. Old logs are kept as `.1`, `.2`, etc., up to 5 backups.
