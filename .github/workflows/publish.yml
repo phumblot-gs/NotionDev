@@ -3,16 +3,19 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
     
@@ -21,12 +24,25 @@ jobs:
         python -m pip install --upgrade pip
         pip install build twine
     
+    - name: Verify version matches tag
+      if: github.event_name == 'release'
+      run: |
+        VERSION=$(python -c "import notion_dev; print(notion_dev.__version__)")
+        TAG=${GITHUB_REF#refs/tags/v}
+        if [ "$VERSION" != "$TAG" ]; then
+          echo "Version mismatch: package version $VERSION != tag $TAG"
+          exit 1
+        fi
+    
     - name: Build package
       run: python -m build
+    
+    - name: Check package
+      run: twine check dist/*
     
     - name: Publish to PyPI
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
       run: |
-        twine upload dist/*
+        twine upload --non-interactive --disable-progress-bar dist/*

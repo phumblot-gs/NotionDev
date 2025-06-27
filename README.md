@@ -12,9 +12,10 @@ They can then comment on Asana tickets, tag their code with implemented features
 
 NotionDev works in a multi-project environment: you can have multiple git projects locally, you can work on distinct features in each project.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![Python](https://img.shields.io/badge/python-3.9+-green.svg)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+[![PyPI version](https://badge.fury.io/py/notion-dev.svg)](https://pypi.org/project/notion-dev/)
+[![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Tests](https://github.com/phumblot-gs/NotionDev/actions/workflows/tests.yml/badge.svg)](https://github.com/phumblot-gs/NotionDev/actions/workflows/tests.yml)
 
 ## ✨ Features
 
@@ -73,24 +74,44 @@ For NotionDev to work, your Notion workspace must contain 2 databases with the a
 
 ## 🚀 Installation
 
-### Automatic Installation
+### Install from PyPI (Recommended)
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/notion-dev.git
-cd notion-dev
-
-# 2. Run installation
-chmod +x install_notion_dev.sh
-./install_notion_dev.sh
+pip install notion-dev
 ```
 
-The installation script will:
-- ✅ Check Python 3.9+
-- ✅ Create a virtual environment
-- ✅ Install all dependencies
-- ✅ Configure the global `notion-dev` alias
-- ✅ Create the configuration template
+### Install from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/phumblot-gs/NotionDev.git
+cd NotionDev
+
+# Install in development mode
+pip install -e .
+```
+
+### First Time Setup
+
+After installation:
+```bash
+# Create configuration directory
+mkdir -p ~/.notion-dev
+
+# Copy the example configuration
+# You'll need to edit this with your tokens
+cat > ~/.notion-dev/config.yml << 'EOF'
+notion:
+  token: "secret_YOUR_NOTION_TOKEN"
+  database_modules_id: "YOUR_MODULES_DB_ID"
+  database_features_id: "YOUR_FEATURES_DB_ID"
+
+asana:
+  access_token: "YOUR_ASANA_TOKEN"
+  workspace_gid: "YOUR_WORKSPACE_ID"
+  user_gid: "YOUR_USER_ID"
+EOF
+```
 
 ### Configuration
 
