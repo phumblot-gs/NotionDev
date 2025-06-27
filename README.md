@@ -286,18 +286,43 @@ NotionDev automatically detects the project from the current directory:
 
 ## ⚙️ Advanced Configuration
 
-### Optimization for Your AI
+### Context Size Management
+
+The `context_max_length` parameter controls the maximum size of the `.cursorrules` file to ensure compatibility with your AI model's context window:
 
 ```yaml
 ai:
   # For Claude Opus/Sonnet (recommended)
-  context_max_length: 100000
-  include_code_examples: true
+  context_max_length: 100000  # ~100KB
   
   # For GPT-3.5 (more limited)
-  context_max_length: 32000
-  include_code_examples: false
+  context_max_length: 32000   # ~32KB
 ```
+
+**How it works:**
+- Default: 100,000 characters
+- If content exceeds the limit, it's intelligently truncated
+- Priority is given to critical sections (headers, rules, project context)
+- Documentation is truncated first if needed
+- A message `[Content truncated to fit context limits]` is added when truncation occurs
+
+**Checking truncation:**
+After running `notion-dev work`, check the logs:
+```
+.cursorrules created: 45000 chars                    # Normal
+.cursorrules created: 100000 chars (truncated from 125000)  # Truncated
+```
+
+### Language Configuration
+
+NotionDev enforces English for all code and comments, regardless of documentation language:
+
+- **Documentation**: Can be in any language (French, English, etc.)
+- **Generated code**: Always in English
+- **Comments**: Always in English
+- **Variable/function names**: Always in English
+
+This is automatically enforced through the `.cursorrules` file.
 
 ### Custom Shell Aliases
 
@@ -323,6 +348,8 @@ notion-dev info
 
 ### Debug Logs
 
+NotionDev uses rotating logs to prevent disk space issues:
+
 ```bash
 # View detailed logs
 tail -f ~/.notion-dev/notion-dev.log
@@ -331,6 +358,12 @@ tail -f ~/.notion-dev/notion-dev.log
 export NOTION_DEV_LOG_LEVEL=DEBUG
 notion-dev tickets
 ```
+
+**Log rotation:**
+- Maximum file size: 10MB
+- Keeps 5 backup files (notion-dev.log.1 through .5)
+- Automatic rotation when size limit is reached
+- Logs location: `~/.notion-dev/notion-dev.log`
 
 ## 🤝 Contributing
 
