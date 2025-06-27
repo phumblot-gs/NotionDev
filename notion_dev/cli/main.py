@@ -592,10 +592,12 @@ def interactive(ctx):
         console.print("1. 📋 Voir mes tickets Asana")
         console.print("2. 🎯 Générer contexte pour une feature")
         console.print("3. 🔄 Travailler sur un ticket")
-        console.print("4. 📊 Infos du projet")
-        console.print("5. 🚪 Quitter")
+        console.print("4. 💬 Ajouter un commentaire au ticket en cours")
+        console.print("5. ✅ Marquer le travail comme terminé")
+        console.print("6. 📊 Infos du projet")
+        console.print("7. 🚪 Quitter")
         
-        choice = Prompt.ask("Votre choix", choices=["1", "2", "3", "4", "5"])
+        choice = Prompt.ask("Votre choix", choices=["1", "2", "3", "4", "5", "6", "7"])
         
         if choice == "1":
             ctx.invoke(tickets)
@@ -606,8 +608,24 @@ def interactive(ctx):
             task_id = Prompt.ask("ID du ticket")
             ctx.invoke(work, task_id=task_id)
         elif choice == "4":
-            ctx.invoke(info)
+            # Check if there's a current task
+            current_task_file = Path.home() / ".notion-dev" / "current_task.txt"
+            if current_task_file.exists():
+                message = Prompt.ask("Votre commentaire")
+                ctx.invoke(comment, message=message)
+            else:
+                console.print("[yellow]⚠️ Aucun ticket en cours. Utilisez d'abord 'Travailler sur un ticket'[/yellow]")
         elif choice == "5":
+            # Check if there's a current task
+            current_task_file = Path.home() / ".notion-dev" / "current_task.txt"
+            if current_task_file.exists():
+                if Confirm.ask("Marquer le travail comme terminé et réassigner au créateur ?"):
+                    ctx.invoke(done)
+            else:
+                console.print("[yellow]⚠️ Aucun ticket en cours. Utilisez d'abord 'Travailler sur un ticket'[/yellow]")
+        elif choice == "6":
+            ctx.invoke(info)
+        elif choice == "7":
             console.print("[green]👋 À bientôt![/green]")
             break
 
