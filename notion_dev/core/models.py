@@ -61,10 +61,16 @@ class Feature:
                 context += f"**User Rights:** {self.user_rights}\n"
                 
         context += "\n## Feature Documentation\n\n"
-        context += self.content
+        # Clean up content to remove project reference line
+        cleaned_content = self.content
+        if cleaned_content:
+            lines = cleaned_content.split('\n')
+            filtered_lines = [line for line in lines if not (line.strip().startswith('*') and 'fait partie du projet' in line)]
+            cleaned_content = '\n'.join(filtered_lines)
+        context += cleaned_content
         
         if self.module:
-            context += f"\n\n## Module Documentation - {self.module.name}\n\n"
+            context += f"\n\nBelow the documentation of Module: {self.module.name}\n\n"
             context += self.module.content
             
         return context

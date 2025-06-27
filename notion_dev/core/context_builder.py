@@ -236,7 +236,20 @@ Every new file you create MUST start with:
 4. **Existing Code**: Read headers before ANY modification
 5. **Pattern Following**: Maintain consistency within {feature.module_name}
 
-## Feature Specification
+### Language Requirements
+
+**CRITICAL**: Language usage rules for this project:
+- **Documentation reading**: You may encounter documentation in various languages (English, French, etc.)
+- **Chat responses**: You may respond in the user's preferred language
+- **Code and comments**: ALL code, comments, variable names, and function names MUST be in English
+  - ✅ `// Calculate user permissions`
+  - ❌ `// Calculer les permissions utilisateur`
+  - ✅ `function validateUserInput()`
+  - ❌ `function validerEntreeUtilisateur()`
+
+This is a strict requirement regardless of the documentation language or chat language.
+
+Below are the Feature Specifications:
 
 {feature.get_full_context()}
 
