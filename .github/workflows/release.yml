@@ -44,7 +44,7 @@ jobs:
         notion-dev --help
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: dist-packages
         path: dist/
