@@ -190,6 +190,10 @@ notion-dev done
 
 # Interactive mode
 notion-dev interactive
+
+# JSON output for programmatic access
+notion-dev tickets --json
+notion-dev info --json
 ```
 
 ### Typical Developer Workflow
@@ -286,6 +290,55 @@ The goal is to verify functional code coverage and avoid regressions since the A
  */
 export class GoogleAuthService {
   // Implementation...
+}
+```
+
+### JSON Output Support
+
+NotionDev supports JSON output for programmatic access:
+
+```bash
+# Get tickets in JSON format
+notion-dev tickets --json
+
+# Get current task info in JSON format
+notion-dev info --json
+```
+
+**Example JSON output for `tickets --json`:**
+```json
+{
+  "tasks": [
+    {
+      "id": "1234567890",
+      "name": "Implement Google SSO",
+      "feature_code": "AU02",
+      "status": "in_progress",
+      "completed": false,
+      "due_on": "2025-02-01",
+      "url": "https://app.asana.com/0/...",
+      "notion_url": "https://www.notion.so/..."
+    }
+  ]
+}
+```
+
+**Example JSON output for `info --json`:**
+```json
+{
+  "project": {
+    "name": "my-saas-api",
+    "path": "/Users/dev/projects/my-saas-api",
+    "is_git_repo": true
+  },
+  "current_task": {
+    "id": "1234567890",
+    "name": "Implement Google SSO",
+    "feature_code": "AU02",
+    "status": "in_progress",
+    "url": "https://app.asana.com/0/...",
+    "notion_url": "https://www.notion.so/..."
+  }
 }
 ```
 
@@ -417,6 +470,11 @@ notion-dev/
 ```
 
 ## 📝 Changelog
+
+### v1.0.3 (2025-01-28)
+- ✅ Added JSON output support for `tickets` and `info` commands
+- ✅ Published to PyPI as `notion-dev`
+- ✅ Added automated release workflow
 
 ### v1.0.0 (2025-01-26)
 - ✅ Initial release
