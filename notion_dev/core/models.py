@@ -87,6 +87,7 @@ class AsanaTask:
     feature_code: Optional[str] = None
     feature_codes: List[str] = None
     created_by_gid: Optional[str] = None
+    due_on: Optional[str] = None
     
     def __post_init__(self):
         if self.feature_codes is None:

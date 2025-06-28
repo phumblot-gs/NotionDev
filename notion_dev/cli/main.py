@@ -3,6 +3,7 @@ import click
 import logging
 import logging.handlers
 import requests
+import json
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -13,6 +14,7 @@ from ..core.notion_client import NotionClient
 from ..core.asana_client import AsanaClient
 from ..core.context_builder import ContextBuilder
 from collections import defaultdict
+from datetime import datetime
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -111,16 +113,33 @@ def debug_features(ctx):
         console.print(f"- Code: {code}, Name: {name}")
 
 @cli.command()
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
 @click.pass_context
-def info(ctx):
+def info(ctx, output_json):
     """Affiche les informations du projet courant"""
     config = ctx.obj['config']
     project_info = config.get_project_info()
     
-    # Panneau avec les infos du projet
-    portfolio_info = f"Portfolio: {config.asana.portfolio_gid[:8]}..." if config.asana.portfolio_gid else "Portfolio: Non configuré (tous les tickets)"
+    # Prepare JSON data structure
+    info_data = {
+        "project": {
+            "name": project_info['name'],
+            "path": project_info['path'],
+            "cache": project_info['cache'],
+            "is_git_repo": project_info['is_git_repo'],
+            "notion_database_modules_id": config.notion.database_modules_id,
+            "notion_database_features_id": config.notion.database_features_id,
+            "asana_workspace_gid": config.asana.workspace_gid,
+            "asana_portfolio_gid": config.asana.portfolio_gid
+        },
+        "current_task": None
+    }
     
-    info_content = f"""[bold]Nom:[/bold] {project_info['name']}
+    if not output_json:
+        # Panneau avec les infos du projet
+        portfolio_info = f"Portfolio: {config.asana.portfolio_gid[:8]}..." if config.asana.portfolio_gid else "Portfolio: Non configuré (tous les tickets)"
+        
+        info_content = f"""[bold]Nom:[/bold] {project_info['name']}
 [bold]Chemin:[/bold] {project_info['path']}
 [bold]Cache:[/bold] {project_info['cache']}
 [bold]Git Repository:[/bold] {'✅ Oui' if project_info['is_git_repo'] else '❌ Non'}
@@ -131,13 +150,13 @@ def info(ctx):
 - Asana Workspace: {config.asana.workspace_gid}
 - {portfolio_info}
 """
-    
-    panel = Panel(
-        info_content,
-        title=f"📊 Projet: {project_info['name']}",
-        border_style="blue"
-    )
-    console.print(panel)
+        
+        panel = Panel(
+            info_content,
+            title=f"📊 Projet: {project_info['name']}",
+            border_style="blue"
+        )
+        console.print(panel)
     
     # Check current working task
     import os
@@ -156,7 +175,10 @@ def info(ctx):
             config.asana.portfolio_gid
         )
         
-        with console.status("[bold green]Récupération du ticket courant..."):
+        if not output_json:
+            with console.status("[bold green]Récupération du ticket courant..."):
+                task = asana_client.get_task(current_task_id)
+        else:
             task = asana_client.get_task(current_task_id)
         
         if task:
@@ -172,14 +194,15 @@ def info(ctx):
             else:
                 feature_display = task.feature_code or 'Non défini'
             
-            task_content = f"""[bold]{task.name}[/bold]
-
-ID: {task.gid}
-Feature Code(s): {feature_display}
-Statut: {'✅ Terminé' if task.completed else '🔄 En cours'}
-Asana: [link={asana_url}]{asana_url}[/link]"""
+            # Try to get started_at timestamp from current_task file metadata
+            started_at = None
+            try:
+                started_at = datetime.fromtimestamp(os.path.getmtime(current_task_file)).isoformat()
+            except:
+                pass
             
-            # Add Notion URL if we have a feature code
+            # Get Notion URL if we have a feature code
+            notion_url = None
             if task.feature_code:
                 # Get feature from Notion to get the page ID
                 notion_client = NotionClient(
@@ -190,31 +213,70 @@ Asana: [link={asana_url}]{asana_url}[/link]"""
                 feature = notion_client.get_feature(task.feature_code)
                 if feature and hasattr(feature, 'notion_id'):
                     notion_url = f"https://www.notion.so/{feature.notion_id.replace('-', '')}"
-                    task_content += f"\nNotion: [link={notion_url}]{notion_url}[/link]"
             
-            task_panel = Panel(
-                task_content,
-                title="🎯 Ticket en cours",
-                border_style="green"
-            )
-            console.print(task_panel)
+            # Prepare task data for JSON
+            info_data["current_task"] = {
+                "id": task.gid,
+                "name": task.name,
+                "feature_code": task.feature_code,
+                "feature_codes": task.feature_codes if hasattr(task, 'feature_codes') else [],
+                "status": "completed" if task.completed else "in_progress",
+                "started_at": started_at,
+                "url": asana_url,
+                "notion_url": notion_url
+            }
+            
+            if not output_json:
+                task_content = f"""[bold]{task.name}[/bold]
+
+ID: {task.gid}
+Feature Code(s): {feature_display}
+Statut: {'✅ Terminé' if task.completed else '🔄 En cours'}
+Asana: [link={asana_url}]{asana_url}[/link]"""
+                
+                if notion_url:
+                    task_content += f"\nNotion: [link={notion_url}]{notion_url}[/link]"
+                
+                task_panel = Panel(
+                    task_content,
+                    title="🎯 Ticket en cours",
+                    border_style="green"
+                )
+                console.print(task_panel)
         else:
-            console.print("[dim]⚠️ Ticket courant introuvable (supprimé ?)[/dim]")
+            if not output_json:
+                console.print("[dim]⚠️ Ticket courant introuvable (supprimé ?)[/dim]")
     else:
-        console.print("[dim]💡 Aucun ticket en cours. Utilise 'notion-dev work [ID]' pour commencer.[/dim]")
+        if not output_json:
+            console.print("[dim]💡 Aucun ticket en cours. Utilise 'notion-dev work [ID]' pour commencer.[/dim]")
+    
+    if output_json:
+        print(json.dumps(info_data, indent=2, ensure_ascii=False))
 
 @cli.command()
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
 @click.pass_context
-def tickets(ctx):
+def tickets(ctx, output_json):
     """Liste vos tickets Asana assignés (filtrés par portfolio si configuré)"""
     config = ctx.obj['config']
     project_info = config.get_project_info()
     
-    # Afficher le projet courant et le filtre portfolio
-    portfolio_info = f" (Portfolio: {config.asana.portfolio_gid[:8]}...)" if config.asana.portfolio_gid else " (Tous projets)"
-    console.print(f"[dim]Projet courant: {project_info['name']} ({project_info['path']}){portfolio_info}[/dim]\n")
+    if not output_json:
+        # Afficher le projet courant et le filtre portfolio
+        portfolio_info = f" (Portfolio: {config.asana.portfolio_gid[:8]}...)" if config.asana.portfolio_gid else " (Tous projets)"
+        console.print(f"[dim]Projet courant: {project_info['name']} ({project_info['path']}){portfolio_info}[/dim]\n")
     
-    with console.status("[bold green]Récupération des tickets Asana..."):
+    if not output_json:
+        with console.status("[bold green]Récupération des tickets Asana..."):
+            asana_client = AsanaClient(
+                config.asana.access_token,
+                config.asana.workspace_gid,
+                config.asana.user_gid,
+                config.asana.portfolio_gid
+            )
+            
+            tasks = asana_client.get_my_tasks()
+    else:
         asana_client = AsanaClient(
             config.asana.access_token,
             config.asana.workspace_gid,
@@ -225,9 +287,54 @@ def tickets(ctx):
         tasks = asana_client.get_my_tasks()
     
     if not tasks:
-        console.print("[yellow]Aucun ticket trouvé[/yellow]")
-        if config.asana.portfolio_gid:
-            console.print("[dim]💡 Vérifiez que le portfolio contient des projets avec vos tickets[/dim]")
+        if output_json:
+            print(json.dumps({"tasks": []}, indent=2, ensure_ascii=False))
+        else:
+            console.print("[yellow]Aucun ticket trouvé[/yellow]")
+            if config.asana.portfolio_gid:
+                console.print("[dim]💡 Vérifiez que le portfolio contient des projets avec vos tickets[/dim]")
+        return
+    
+    # Prepare JSON data if needed
+    if output_json:
+        # Get Notion client for fetching Notion URLs
+        notion_client = NotionClient(
+            config.notion.token,
+            config.notion.database_modules_id,
+            config.notion.database_features_id
+        )
+        
+        tasks_data = []
+        for task in tasks:
+            # Build Asana URL
+            project_id = task.project_gid or "0"
+            asana_url = f"https://app.asana.com/0/{project_id}/{task.gid}"
+            
+            # Get Notion URL if we have a feature code
+            notion_url = None
+            if task.feature_code:
+                try:
+                    feature = notion_client.get_feature(task.feature_code)
+                    if feature and hasattr(feature, 'notion_id'):
+                        notion_url = f"https://www.notion.so/{feature.notion_id.replace('-', '')}"
+                except:
+                    pass
+            
+            task_data = {
+                "id": task.gid,
+                "name": task.name,
+                "feature_code": task.feature_code,
+                "status": "completed" if task.completed else "in_progress",
+                "completed": task.completed,
+                "due_on": task.due_on,
+                "url": asana_url,
+                "notion_url": notion_url,
+                "project_name": task.project_name,
+                "project_gid": task.project_gid
+            }
+            tasks_data.append(task_data)
+        
+        print(json.dumps({"tasks": tasks_data}, indent=2, ensure_ascii=False))
         return
     
     # Affichage en tableau avec groupement par projet si portfolio configuré

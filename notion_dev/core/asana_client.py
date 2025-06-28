@@ -102,7 +102,7 @@ class AsanaClient:
             # Cannot filter by assignee when querying project tasks
             params = {
                 'completed_since': completed_since or 'now',
-                'opt_fields': 'gid,name,notes,assignee,completed'
+                'opt_fields': 'gid,name,notes,assignee,completed,due_on'
             }
             
             response = self._make_request("GET", endpoint, params=params)
@@ -122,7 +122,8 @@ class AsanaClient:
                     assignee_gid=assignee_gid,
                     completed=task_data.get('completed', False),
                     project_gid=project_gid,
-                    project_name=project_name
+                    project_name=project_name,
+                    due_on=task_data.get('due_on')
                 )
                 
                 # Extraction automatique du code feature
@@ -141,7 +142,7 @@ class AsanaClient:
             'assignee': self.user_gid,
             'workspace': self.workspace_gid,
             'completed_since': completed_since or 'now',
-            'opt_fields': 'gid,name,notes,assignee,completed,projects'
+            'opt_fields': 'gid,name,notes,assignee,completed,projects,due_on,created_by'
         }
         
         response = self._make_request("GET", "tasks", params=params)
@@ -162,7 +163,8 @@ class AsanaClient:
                 completed=task_data.get('completed', False),
                 project_gid=project_gid,
                 project_name=project_name,
-                created_by_gid=task_data.get('created_by', {}).get('gid', '') if task_data.get('created_by') else ''
+                created_by_gid=task_data.get('created_by', {}).get('gid', '') if task_data.get('created_by') else '',
+                due_on=task_data.get('due_on')
             )
             
             # Extraction automatique du code feature
@@ -176,7 +178,7 @@ class AsanaClient:
         try:
             endpoint = f"tasks/{task_gid}"
             params = {
-                'opt_fields': 'gid,name,notes,assignee,completed,projects,created_by'
+                'opt_fields': 'gid,name,notes,assignee,completed,projects,created_by,due_on'
             }
             
             response = self._make_request("GET", endpoint, params=params)
@@ -198,7 +200,8 @@ class AsanaClient:
                 completed=task_data.get('completed', False),
                 project_gid=project_gid,
                 project_name=project_name,
-                created_by_gid=task_data.get('created_by', {}).get('gid', '') if task_data.get('created_by') else ''
+                created_by_gid=task_data.get('created_by', {}).get('gid', '') if task_data.get('created_by') else '',
+                due_on=task_data.get('due_on')
             )
             
             asana_task.extract_feature_code()
