@@ -198,7 +198,7 @@ def info(ctx, output_json):
             started_at = None
             try:
                 started_at = datetime.fromtimestamp(os.path.getmtime(current_task_file)).isoformat()
-            except:
+            except (OSError, ValueError):
                 pass
             
             # Get Notion URL if we have a feature code
@@ -317,7 +317,7 @@ def tickets(ctx, output_json):
                     feature = notion_client.get_feature(task.feature_code)
                     if feature and hasattr(feature, 'notion_id'):
                         notion_url = f"https://www.notion.so/{feature.notion_id.replace('-', '')}"
-                except:
+                except Exception:
                     pass
             
             task_data = {
