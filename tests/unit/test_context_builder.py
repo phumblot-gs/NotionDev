@@ -61,11 +61,11 @@ class TestContextBuilder:
         content = builder._build_agents_content(context)
         
         # Verify content structure
-        assert "# NotionDev Context - TestProject" in content
-        assert "## ⚠️ CRITICAL PROJECT CONTEXT" in content
-        assert "**Feature**: AU01 - User Authentication" in content
-        assert "**Module**: Auth Module" in content
-        assert "**Task**: 789 - Implement OAuth" in content
+        assert "# AGENTS.md - TestProject" in content
+        assert "## Project Overview" in content
+        assert "**Active Feature**: AU01 - User Authentication" in content
+        assert "**Active Module**: Auth Module" in content
+        assert "**Current Task**: 789 - Implement OAuth" in content
         assert "NOTION FEATURES: AU01" in content
         assert "This feature implements user authentication" in content
     
@@ -117,7 +117,7 @@ class TestContextBuilder:
             # Read and verify content
             with open(agents_path, 'r') as f:
                 content = f.read()
-            assert "**Feature**: AU01 - User Authentication" in content
+            assert "**Active Feature**: AU01 - User Authentication" in content
     
     def test_content_truncation(self):
         """Test that content is properly truncated when exceeding max length"""
