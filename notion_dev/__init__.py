@@ -3,7 +3,7 @@
 NotionDev - Intégration Notion ↔ Asana ↔ Git pour développeurs
 """
 
-__version__ = "1.0.3"
+__version__ = "1.1.0"
 
 from .core.config import Config
 from .core.models import Feature, Module, AsanaTask
