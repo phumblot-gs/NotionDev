@@ -26,7 +26,7 @@ cp -r /Users/phf/notion_dev-project/extension-files/* /Users/phf/notion-dev-curs
    ```
 
 4. Test the extension:
-   - Open the extension folder in VS Code/Cursor
+   - Open the extension folder in VS Code or your AI coding assistant
    - Press F5 to launch a new Extension Development Host window
    - Test the NotionDev commands and views
 
@@ -40,7 +40,7 @@ cp -r /Users/phf/notion_dev-project/extension-files/* /Users/phf/notion-dev-curs
 
 - The extension requires the NotionDev CLI to be installed (`pip install notion-dev`)
 - Make sure to configure your API tokens when prompted
-- The extension will create a `.cursorrules` file in your workspace when you work on a task
+- The extension will create an `AGENTS.md` file in your workspace when you work on a task
 
 ## JSON Support
 

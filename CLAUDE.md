@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NotionDev is a Python CLI tool that integrates Notion, Asana, and Git for developers. It streamlines development workflows by automatically loading feature specifications from Notion into the IDE (specifically Cursor) while synchronizing with Asana tickets.
+NotionDev is a Python CLI tool that integrates Notion, Asana, and Git for developers. It streamlines development workflows by automatically loading feature specifications from Notion into AI coding assistants via AGENTS.md while synchronizing with Asana tickets.
 
 ## Commands
 
@@ -50,7 +50,7 @@ notion_dev/
 ├── core/
 │   ├── asana_client.py  # Custom Asana API client using requests
 │   ├── config.py        # YAML configuration with dataclasses
-│   ├── context_builder.py # AI context generation for Cursor
+│   ├── context_builder.py # AI context generation for AGENTS.md
 │   ├── models.py        # Data models (Module, Feature, AsanaTask, AsanaProject)
 │   └── notion_client.py # Notion API client wrapper
 └── requirements.txt     # Python dependencies
@@ -76,7 +76,7 @@ notion_dev/
 - The Asana client uses direct HTTP requests instead of the official SDK due to version compatibility issues
 - Feature codes follow patterns like AU01, DA02, API03 (prefix + number)
 - Headers are automatically generated in code files for traceability
-- Context files are exported to `.cursor/` directory for IDE integration
+- Context files are exported to `AGENTS.md` file following the universal AI agent standard
 
 ## Dependencies
 

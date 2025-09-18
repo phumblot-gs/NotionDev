@@ -1,4 +1,4 @@
-"""Tests for context builder with .cursorrules support"""
+"""Tests for context builder with AGENTS.md support"""
 import tempfile
 import os
 from unittest.mock import MagicMock, patch
@@ -10,8 +10,8 @@ from notion_dev.core.config import Config, AIConfig
 class TestContextBuilder:
     """Test ContextBuilder functionality"""
     
-    def test_cursorrules_content_generation(self):
-        """Test that .cursorrules content is properly generated"""
+    def test_agents_content_generation(self):
+        """Test that AGENTS.md content is properly generated"""
         # Mock config
         config = MagicMock(spec=Config)
         config.ai = AIConfig(context_max_length=100000)
@@ -57,8 +57,8 @@ class TestContextBuilder:
             'project_info': config.get_project_info()
         }
         
-        # Generate .cursorrules content
-        content = builder._build_cursorrules_content(context)
+        # Generate AGENTS.md content
+        content = builder._build_agents_content(context)
         
         # Verify content structure
         assert "# NotionDev Context - TestProject" in content
@@ -69,8 +69,8 @@ class TestContextBuilder:
         assert "NOTION FEATURES: AU01" in content
         assert "This feature implements user authentication" in content
     
-    def test_cursorrules_export(self):
-        """Test exporting to .cursorrules file"""
+    def test_agents_export(self):
+        """Test exporting to AGENTS.md file"""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Mock config
             config = MagicMock(spec=Config)
@@ -106,16 +106,16 @@ class TestContextBuilder:
                 'project_info': config.get_project_info()
             }
             
-            # Export to .cursorrules
-            success = builder.export_to_cursorrules(context)
-            
+            # Export to AGENTS.md
+            success = builder.export_to_agents_md(context)
+
             # Verify export
             assert success
-            cursorrules_path = os.path.join(tmpdir, ".cursorrules")
-            assert os.path.exists(cursorrules_path)
-            
+            agents_path = os.path.join(tmpdir, "AGENTS.md")
+            assert os.path.exists(agents_path)
+
             # Read and verify content
-            with open(cursorrules_path, 'r') as f:
+            with open(agents_path, 'r') as f:
                 content = f.read()
             assert "**Feature**: AU01 - User Authentication" in content
     
@@ -180,9 +180,10 @@ class TestContextBuilder:
                 'project_info': config.get_project_info()
             }
             
-            # Export should clean up .cursor
-            builder.export_to_cursorrules(context)
-            
+            # Export should clean up .cursor and .cursorrules
+            builder.export_to_agents_md(context)
+
             # Verify cleanup
             assert not os.path.exists(cursor_dir)
-            assert os.path.exists(os.path.join(tmpdir, ".cursorrules"))
+            assert not os.path.exists(os.path.join(tmpdir, ".cursorrules"))
+            assert os.path.exists(os.path.join(tmpdir, "AGENTS.md"))

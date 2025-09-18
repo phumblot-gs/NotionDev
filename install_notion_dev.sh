@@ -245,17 +245,17 @@ def work(ctx, task_id):
     )
     console.print(feature_panel)
     
-    # Export vers Cursor
-    if Confirm.ask("Exporter le contexte vers Cursor?", default=True):
-        with console.status("[bold green]Export vers Cursor..."):
-            success = context_builder.export_to_cursor(
-                context, 
+    # Export vers AGENTS.md
+    if Confirm.ask("Exporter le contexte vers AGENTS.md?", default=True):
+        with console.status("[bold green]Export vers AGENTS.md..."):
+            success = context_builder.export_to_agents_md(
+                context,
                 config.project.repository_path
             )
-        
+
         if success:
-            console.print("[green]✅ Contexte exporté vers .cursor/[/green]")
-            console.print("[yellow]💡 Vous pouvez maintenant ouvrir Cursor et commencer à coder![/yellow]")
+            console.print("[green]✅ Contexte exporté vers AGENTS.md[/green]")
+            console.print("[yellow]💡 Vous pouvez maintenant ouvrir votre éditeur AI et commencer à coder![/yellow]")
         else:
             console.print("[red]❌ Erreur lors de l'export[/red]")
 
@@ -297,14 +297,14 @@ def context(ctx, feature):
     console.print(info_panel)
     
     # Export
-    if Confirm.ask("Exporter vers Cursor?", default=True):
-        success = context_builder.export_to_cursor(
+    if Confirm.ask("Exporter vers AGENTS.md?", default=True):
+        success = context_builder.export_to_agents_md(
             context,
             config.project.repository_path
         )
-        
+
         if success:
-            console.print("[green]✅ Contexte exporté![/green]")
+            console.print("[green]✅ Contexte exporté vers AGENTS.md![/green]")
         else:
             console.print("[red]❌ Erreur lors de l'export[/red]")
 

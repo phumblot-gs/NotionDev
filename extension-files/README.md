@@ -1,13 +1,13 @@
-# NotionDev for Cursor
+# NotionDev for AI Coding Assistants
 
-Integrate Notion, Asana and Git workflows directly in Cursor IDE.
+Integrate Notion, Asana and Git workflows directly in AI coding assistants via AGENTS.md standard.
 
 ## Features
 
 - 📋 **Asana Tasks View**: See all your assigned tasks in the sidebar
 - 🎯 **Quick Task Selection**: Click on any task to start working on it
 - 📝 **Current Task Info**: View detailed information about your current task
-- 💬 **Add Comments**: Comment on Asana tickets directly from Cursor
+- 💬 **Add Comments**: Comment on Asana tickets directly from your AI coding assistant
 - ✅ **Mark Done**: Complete tasks and reassign to requester
 - 🔄 **Auto-refresh**: Automatically updates task status every 5 minutes
 - 🔗 **Quick Links**: Open tasks in Asana or Notion with one click
@@ -16,7 +16,7 @@ Integrate Notion, Asana and Git workflows directly in Cursor IDE.
 
 - **NotionDev CLI**: Install with `pip install notion-dev` (version 1.0.3 or higher)
 - **API Tokens**: Notion and Asana API access tokens
-- **Cursor IDE**: Version 0.30.0 or higher
+- **AI Coding Assistant**: Compatible with Claude Code, Cursor, VS Code Copilot, etc.
 
 ## Installation
 
@@ -25,7 +25,7 @@ Integrate Notion, Asana and Git workflows directly in Cursor IDE.
    pip install notion-dev
    ```
 
-2. Install this extension from the VS Code Marketplace or Cursor Extensions
+2. Install this extension from the VS Code Marketplace or your AI assistant's extension marketplace
 
 3. Configure the extension (see Configuration section)
 
@@ -54,7 +54,7 @@ On first use, the extension will prompt you to configure your API tokens. You ca
 ### Work on a Task
 - **From Sidebar**: Click on any task
 - **From Command Palette**: Run `NotionDev: Work on Ticket` and enter task ID
-- **Result**: Loads complete context into `.cursorrules` file
+- **Result**: Loads complete context into `AGENTS.md` file
 
 ### Current Task Management
 - **View Info**: Click the status bar item or run `NotionDev: Show Current Task Info`
@@ -78,7 +78,7 @@ Tasks and current task info refresh automatically every 5 minutes. Disable in se
 
 ### Context Export
 When you select a task, the extension automatically:
-- Exports complete specifications to `.cursorrules`
+- Exports complete specifications to `AGENTS.md`
 - Opens the file for immediate AI context
 - Updates your working status in Asana
 
@@ -105,4 +105,4 @@ When you select a task, the extension automatically:
 
 ---
 
-Made with ❤️ to accelerate AI-assisted development in Cursor
+Made with ❤️ to accelerate AI-assisted development with coding assistants
