@@ -262,6 +262,147 @@ class AsanaClient:
             logger.error(f"Error reassigning task {task_gid}: {e}")
             return False
     
+    def create_task(
+        self,
+        name: str,
+        notes: str = "",
+        project_gid: Optional[str] = None,
+        assignee_gid: Optional[str] = None,
+        due_on: Optional[str] = None
+    ) -> Optional[AsanaTask]:
+        """Create a new task in Asana.
+
+        Args:
+            name: Task name/title
+            notes: Task description (supports markdown-like formatting)
+            project_gid: Project to add the task to. If None, uses first portfolio project.
+            assignee_gid: User to assign to. If None, assigns to self.
+            due_on: Due date in YYYY-MM-DD format
+
+        Returns:
+            Created AsanaTask or None if failed
+        """
+        try:
+            # Determine project
+            if not project_gid and self.portfolio_gid:
+                projects = self.get_portfolio_projects()
+                if projects:
+                    project_gid = projects[0].gid
+                    logger.info(f"Using first portfolio project: {projects[0].name}")
+
+            if not project_gid:
+                logger.error("No project specified and no portfolio projects available")
+                return None
+
+            # Build task data
+            task_data = {
+                'name': name,
+                'notes': notes,
+                'assignee': assignee_gid or self.user_gid,
+                'projects': [project_gid]
+            }
+
+            if due_on:
+                task_data['due_on'] = due_on
+
+            endpoint = "tasks"
+            response = self._make_request("POST", endpoint, json={'data': task_data})
+            created_task = response.get('data', {})
+
+            if not created_task:
+                return None
+
+            # Build AsanaTask object
+            asana_task = AsanaTask(
+                gid=created_task['gid'],
+                name=created_task['name'],
+                notes=created_task.get('notes', ''),
+                assignee_gid=assignee_gid or self.user_gid,
+                completed=False,
+                project_gid=project_gid,
+                project_name=None,  # Would need extra API call to get name
+                due_on=due_on
+            )
+
+            asana_task.extract_feature_code()
+            logger.info(f"Created task: {asana_task.gid} - {asana_task.name}")
+            return asana_task
+
+        except Exception as e:
+            logger.error(f"Error creating task: {e}")
+            return None
+
+    def update_task(
+        self,
+        task_gid: str,
+        name: Optional[str] = None,
+        notes: Optional[str] = None,
+        append_notes: bool = False,
+        assignee_gid: Optional[str] = None,
+        due_on: Optional[str] = None,
+        completed: Optional[bool] = None
+    ) -> Optional[AsanaTask]:
+        """Update an existing task in Asana.
+
+        Args:
+            task_gid: ID of the task to update
+            name: New task name (if provided)
+            notes: New notes content (if provided)
+            append_notes: If True, append notes to existing. If False, replace.
+            assignee_gid: New assignee (if provided)
+            due_on: New due date in YYYY-MM-DD format (if provided)
+            completed: New completion status (if provided)
+
+        Returns:
+            Updated AsanaTask or None if failed
+        """
+        try:
+            # Build update data with only provided fields
+            update_data = {}
+
+            if name is not None:
+                update_data['name'] = name
+
+            if notes is not None:
+                if append_notes:
+                    # Fetch current notes first
+                    current_task = self.get_task(task_gid)
+                    if current_task:
+                        current_notes = current_task.notes or ""
+                        separator = "\n\n---\n\n" if current_notes else ""
+                        update_data['notes'] = current_notes + separator + notes
+                    else:
+                        update_data['notes'] = notes
+                else:
+                    update_data['notes'] = notes
+
+            if assignee_gid is not None:
+                update_data['assignee'] = assignee_gid
+
+            if due_on is not None:
+                update_data['due_on'] = due_on
+
+            if completed is not None:
+                update_data['completed'] = completed
+
+            if not update_data:
+                logger.warning("No fields to update")
+                return self.get_task(task_gid)
+
+            endpoint = f"tasks/{task_gid}"
+            response = self._make_request("PUT", endpoint, json={'data': update_data})
+            updated_task = response.get('data', {})
+
+            if not updated_task:
+                return None
+
+            # Return fresh task data
+            return self.get_task(task_gid)
+
+        except Exception as e:
+            logger.error(f"Error updating task {task_gid}: {e}")
+            return None
+
     def test_connection(self) -> bool:
         """Test de connexion simple"""
         try:

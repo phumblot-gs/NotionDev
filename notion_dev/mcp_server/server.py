@@ -382,11 +382,8 @@ async def notiondev_work_on_ticket(task_id: str) -> str:
     Returns:
         Status message with ticket and feature information
     """
-    # Run the work command (non-interactive mode would be ideal)
-    # For now, we'll use the CLI which has interactive prompts
-    # We'll need to handle this differently
-
-    result = run_notion_dev_command(["work", task_id], timeout=120)
+    # Run the work command with --yes flag to skip interactive prompts
+    result = run_notion_dev_command(["work", task_id, "--yes"], timeout=120)
 
     if result["success"]:
         return f"Started working on ticket {task_id}.\n\nOutput:\n{result['output']}"
@@ -441,6 +438,131 @@ async def notiondev_mark_done() -> str:
             "error": result.get("error", "Failed to mark ticket as done"),
             "details": result.get("output", "")
         })
+
+
+# =============================================================================
+# MCP Tools - Ticket Creation & Update
+# =============================================================================
+
+@mcp.tool()
+async def notiondev_create_ticket(
+    name: str,
+    notes: str = "",
+    feature_code: str = "",
+    project_gid: str = "",
+    due_on: str = ""
+) -> str:
+    """Create a new ticket in Asana.
+
+    Args:
+        name: Ticket title (required). Should include feature code, e.g., "CC01 - Implement login"
+        notes: Ticket description in markdown format
+        feature_code: Feature code to reference (e.g., 'CC01'). Will be added to notes if provided.
+        project_gid: Target project ID. If not provided, uses first project from portfolio.
+        due_on: Due date in YYYY-MM-DD format
+
+    Returns:
+        JSON with created ticket details including ID and URL
+    """
+    asana = get_asana_client()
+    if not asana:
+        return json.dumps({"error": "Failed to initialize Asana client"})
+
+    try:
+        # Prepend feature code to notes if provided
+        full_notes = notes
+        if feature_code:
+            feature_header = f"## Feature Code\n{feature_code}\n\n"
+            full_notes = feature_header + notes
+
+        task = asana.create_task(
+            name=name,
+            notes=full_notes,
+            project_gid=project_gid if project_gid else None,
+            due_on=due_on if due_on else None
+        )
+
+        if task:
+            # Build Asana URL
+            project_id = task.project_gid or "0"
+            asana_url = f"https://app.asana.com/0/{project_id}/{task.gid}"
+
+            return json.dumps({
+                "success": True,
+                "message": f"Ticket '{name}' created successfully",
+                "ticket": {
+                    "id": task.gid,
+                    "name": task.name,
+                    "feature_code": task.feature_code,
+                    "url": asana_url,
+                    "due_on": task.due_on
+                }
+            }, indent=2)
+        else:
+            return json.dumps({"error": "Failed to create ticket"})
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def notiondev_update_ticket(
+    task_id: str,
+    name: str = "",
+    notes: str = "",
+    append_notes: bool = False,
+    due_on: str = "",
+    assignee_gid: str = ""
+) -> str:
+    """Update an existing ticket in Asana.
+
+    Args:
+        task_id: The Asana task ID to update (required)
+        name: New ticket title (optional)
+        notes: New notes content in markdown format (optional)
+        append_notes: If true, append to existing notes instead of replacing
+        due_on: New due date in YYYY-MM-DD format (optional)
+        assignee_gid: New assignee user ID (optional)
+
+    Returns:
+        JSON with updated ticket details
+    """
+    asana = get_asana_client()
+    if not asana:
+        return json.dumps({"error": "Failed to initialize Asana client"})
+
+    try:
+        task = asana.update_task(
+            task_gid=task_id,
+            name=name if name else None,
+            notes=notes if notes else None,
+            append_notes=append_notes,
+            due_on=due_on if due_on else None,
+            assignee_gid=assignee_gid if assignee_gid else None
+        )
+
+        if task:
+            # Build Asana URL
+            project_id = task.project_gid or "0"
+            asana_url = f"https://app.asana.com/0/{project_id}/{task.gid}"
+
+            return json.dumps({
+                "success": True,
+                "message": f"Ticket '{task.name}' updated successfully",
+                "ticket": {
+                    "id": task.gid,
+                    "name": task.name,
+                    "feature_code": task.feature_code,
+                    "url": asana_url,
+                    "due_on": task.due_on,
+                    "completed": task.completed
+                }
+            }, indent=2)
+        else:
+            return json.dumps({"error": f"Failed to update ticket {task_id}"})
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 # =============================================================================

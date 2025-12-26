@@ -409,9 +409,15 @@ def tickets(ctx, output_json):
 
 @cli.command()
 @click.argument('task_id')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts (for non-interactive use)')
 @click.pass_context
-def work(ctx, task_id):
-    """Démarre le travail sur un ticket spécifique"""
+def work(ctx, task_id, yes):
+    """Démarre le travail sur un ticket spécifique
+
+    Examples:
+        notion-dev work 1234567890  # Interactive mode with confirmation
+        notion-dev work 1234567890 --yes  # Non-interactive mode (for scripts/MCP)
+    """
     config = ctx.obj['config']
     project_info = config.get_project_info()
     
@@ -514,7 +520,8 @@ def work(ctx, task_id):
     console.print(feature_panel)
     
     # Export vers AGENTS.md (forcé à la racine du projet)
-    if Confirm.ask("Exporter le contexte vers AGENTS.md?", default=True):
+    # Skip confirmation if --yes flag is set
+    if yes or Confirm.ask("Exporter le contexte vers AGENTS.md?", default=True):
         with console.status("[bold green]Export vers AGENTS.md..."):
             # Force export to project root, not current directory
             success = context_builder.export_to_agents_md(context, project_info['path'])
@@ -628,22 +635,32 @@ def done(ctx):
         console.print("[dim]💡 Ticket retiré de la liste 'en cours'[/dim]")
 
 @cli.command()
-@click.option('--feature', help='Code de la feature')
+@click.option('--feature', '-f', help='Code de la feature (required in non-interactive mode)')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts (for non-interactive use)')
 @click.pass_context
-def context(ctx, feature):
-    """Génère le contexte IA pour une feature"""
+def context(ctx, feature, yes):
+    """Génère le contexte IA pour une feature
+
+    Examples:
+        notion-dev context  # Interactive mode, will prompt for feature code
+        notion-dev context --feature CC01  # Specify feature code
+        notion-dev context -f CC01 --yes  # Non-interactive mode (for scripts/MCP)
+    """
     config = ctx.obj['config']
     project_info = config.get_project_info()
-    
+
     notion_client = NotionClient(
         config.notion.token,
         config.notion.database_modules_id,
         config.notion.database_features_id
     )
-    
+
     context_builder = ContextBuilder(notion_client, config)
-    
+
     if not feature:
+        if yes:
+            console.print("[red]❌ --feature est requis en mode non-interactif (--yes)[/red]")
+            return
         feature = Prompt.ask("Code de la feature")
     
     console.print(f"[dim]Projet courant: {project_info['name']}[/dim]\n")
@@ -669,13 +686,155 @@ def context(ctx, feature):
     console.print(info_panel)
     
     # Export
-    if Confirm.ask("Exporter vers AGENTS.md?", default=True):
+    # Skip confirmation if --yes flag is set
+    if yes or Confirm.ask("Exporter vers AGENTS.md?", default=True):
         success = context_builder.export_to_agents_md(context)
 
         if success:
             console.print("[green]✅ Contexte exporté vers AGENTS.md![/green]")
         else:
             console.print("[red]❌ Erreur lors de l'export[/red]")
+
+@cli.command('create-ticket')
+@click.option('--name', '-n', required=True, help='Ticket title')
+@click.option('--feature', '-f', default='', help='Feature code (e.g., CC01)')
+@click.option('--notes', default='', help='Ticket description')
+@click.option('--due', default='', help='Due date (YYYY-MM-DD)')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def create_ticket(ctx, name, feature, notes, due, output_json):
+    """Create a new Asana ticket"""
+    config = ctx.obj['config']
+
+    asana_client = AsanaClient(
+        config.asana.access_token,
+        config.asana.workspace_gid,
+        config.asana.user_gid,
+        config.asana.portfolio_gid
+    )
+
+    # Prepend feature code to notes if provided
+    full_notes = notes
+    if feature:
+        feature_header = f"## Feature Code\n{feature}\n\n"
+        full_notes = feature_header + notes
+
+    if not output_json:
+        with console.status("[bold green]Création du ticket..."):
+            task = asana_client.create_task(
+                name=name,
+                notes=full_notes,
+                due_on=due if due else None
+            )
+    else:
+        task = asana_client.create_task(
+            name=name,
+            notes=full_notes,
+            due_on=due if due else None
+        )
+
+    if task:
+        project_id = task.project_gid or "0"
+        asana_url = f"https://app.asana.com/0/{project_id}/{task.gid}"
+
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({
+                "success": True,
+                "ticket": {
+                    "id": task.gid,
+                    "name": task.name,
+                    "feature_code": task.feature_code,
+                    "url": asana_url,
+                    "due_on": task.due_on
+                }
+            }, indent=2, ensure_ascii=False))
+        else:
+            console.print(f"[green]✅ Ticket créé avec succès![/green]")
+            console.print(f"[bold]ID:[/bold] {task.gid}")
+            console.print(f"[bold]Nom:[/bold] {task.name}")
+            if task.feature_code:
+                console.print(f"[bold]Feature:[/bold] {task.feature_code}")
+            console.print(f"[bold]URL:[/bold] [link={asana_url}]{asana_url}[/link]")
+    else:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": "Failed to create ticket"}, indent=2))
+        else:
+            console.print("[red]❌ Erreur lors de la création du ticket[/red]")
+
+
+@cli.command('update-ticket')
+@click.argument('task_id')
+@click.option('--name', '-n', default='', help='New ticket title')
+@click.option('--notes', default='', help='New notes content')
+@click.option('--append', is_flag=True, help='Append to existing notes instead of replacing')
+@click.option('--due', default='', help='New due date (YYYY-MM-DD)')
+@click.option('--assignee', default='', help='New assignee GID')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def update_ticket(ctx, task_id, name, notes, append, due, assignee, output_json):
+    """Update an existing Asana ticket"""
+    config = ctx.obj['config']
+
+    asana_client = AsanaClient(
+        config.asana.access_token,
+        config.asana.workspace_gid,
+        config.asana.user_gid,
+        config.asana.portfolio_gid
+    )
+
+    if not output_json:
+        with console.status(f"[bold green]Mise à jour du ticket {task_id}..."):
+            task = asana_client.update_task(
+                task_gid=task_id,
+                name=name if name else None,
+                notes=notes if notes else None,
+                append_notes=append,
+                due_on=due if due else None,
+                assignee_gid=assignee if assignee else None
+            )
+    else:
+        task = asana_client.update_task(
+            task_gid=task_id,
+            name=name if name else None,
+            notes=notes if notes else None,
+            append_notes=append,
+            due_on=due if due else None,
+            assignee_gid=assignee if assignee else None
+        )
+
+    if task:
+        project_id = task.project_gid or "0"
+        asana_url = f"https://app.asana.com/0/{project_id}/{task.gid}"
+
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({
+                "success": True,
+                "ticket": {
+                    "id": task.gid,
+                    "name": task.name,
+                    "feature_code": task.feature_code,
+                    "url": asana_url,
+                    "due_on": task.due_on,
+                    "completed": task.completed
+                }
+            }, indent=2, ensure_ascii=False))
+        else:
+            console.print(f"[green]✅ Ticket mis à jour![/green]")
+            console.print(f"[bold]ID:[/bold] {task.gid}")
+            console.print(f"[bold]Nom:[/bold] {task.name}")
+            if task.feature_code:
+                console.print(f"[bold]Feature:[/bold] {task.feature_code}")
+            console.print(f"[bold]URL:[/bold] [link={asana_url}]{asana_url}[/link]")
+    else:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": f"Failed to update ticket {task_id}"}, indent=2))
+        else:
+            console.print(f"[red]❌ Erreur lors de la mise à jour du ticket {task_id}[/red]")
+
 
 @cli.command()
 @click.pass_context
