@@ -1,10 +1,14 @@
 # notion_dev/core/notion_client.py
 import requests
-from typing import List, Optional, Dict, Any
+import re
+from typing import List, Optional, Dict, Any, Union
 from .models import Feature, Module
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Constants for batch operations
+NOTION_MAX_BLOCKS_PER_REQUEST = 100
 
 class NotionClient:
     def __init__(self, token: str, modules_db_id: str, features_db_id: str):
@@ -283,4 +287,770 @@ class NotionClient:
         except Exception as e:
             logger.error(f"Error searching features: {e}")
             return []
+
+    # ==========================================================================
+    # WRITE OPERATIONS - Create and update modules/features in Notion
+    # ==========================================================================
+
+    def _markdown_to_blocks(self, markdown: str) -> List[Dict[str, Any]]:
+        """Convert markdown text to Notion blocks.
+
+        Supports: headings (h1-h3), paragraphs, bullet lists, numbered lists,
+        code blocks, quotes, dividers, bold, italic, code, links.
+        """
+        blocks = []
+        lines = markdown.split('\n')
+        i = 0
+
+        while i < len(lines):
+            line = lines[i]
+
+            # Skip empty lines
+            if not line.strip():
+                i += 1
+                continue
+
+            # Code block (```)
+            if line.strip().startswith('```'):
+                language = line.strip()[3:] or 'plain text'
+                code_lines = []
+                i += 1
+                while i < len(lines) and not lines[i].strip().startswith('```'):
+                    code_lines.append(lines[i])
+                    i += 1
+                blocks.append(self._create_code_block('\n'.join(code_lines), language))
+                i += 1
+                continue
+
+            # Heading 1
+            if line.startswith('# '):
+                blocks.append(self._create_heading_block(line[2:], 1))
+                i += 1
+                continue
+
+            # Heading 2
+            if line.startswith('## '):
+                blocks.append(self._create_heading_block(line[3:], 2))
+                i += 1
+                continue
+
+            # Heading 3
+            if line.startswith('### '):
+                blocks.append(self._create_heading_block(line[4:], 3))
+                i += 1
+                continue
+
+            # Divider
+            if line.strip() in ['---', '***', '___']:
+                blocks.append({'object': 'block', 'type': 'divider', 'divider': {}})
+                i += 1
+                continue
+
+            # Quote
+            if line.startswith('> '):
+                blocks.append(self._create_quote_block(line[2:]))
+                i += 1
+                continue
+
+            # Bullet list
+            if line.startswith('- ') or line.startswith('* '):
+                blocks.append(self._create_bulleted_list_block(line[2:]))
+                i += 1
+                continue
+
+            # Numbered list
+            if re.match(r'^\d+\.\s', line):
+                text = re.sub(r'^\d+\.\s', '', line)
+                blocks.append(self._create_numbered_list_block(text))
+                i += 1
+                continue
+
+            # Table detection (simple markdown tables)
+            if '|' in line and i + 1 < len(lines) and '|' in lines[i + 1]:
+                # Check if next line is separator (|---|---|)
+                if re.match(r'^[\s|:-]+$', lines[i + 1]):
+                    table_lines = [line]
+                    i += 1
+                    # Skip separator
+                    i += 1
+                    # Collect table rows
+                    while i < len(lines) and '|' in lines[i]:
+                        table_lines.append(lines[i])
+                        i += 1
+                    blocks.append(self._create_table_block(table_lines))
+                    continue
+
+            # Default: paragraph
+            blocks.append(self._create_paragraph_block(line))
+            i += 1
+
+        return blocks
+
+    def _parse_rich_text(self, text: str) -> List[Dict[str, Any]]:
+        """Parse markdown inline formatting to Notion rich_text array.
+
+        Supports: **bold**, *italic*, `code`, [links](url)
+        """
+        rich_text = []
+
+        # Pattern to match markdown formatting
+        # Order matters: check combined formats first
+        pattern = r'(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[(.+?)\]\((.+?)\))'
+
+        last_end = 0
+        for match in re.finditer(pattern, text):
+            # Add plain text before this match
+            if match.start() > last_end:
+                plain = text[last_end:match.start()]
+                if plain:
+                    rich_text.append({'type': 'text', 'text': {'content': plain}})
+
+            full_match = match.group(0)
+
+            # Bold + Italic (***text***)
+            if match.group(2):
+                rich_text.append({
+                    'type': 'text',
+                    'text': {'content': match.group(2)},
+                    'annotations': {'bold': True, 'italic': True}
+                })
+            # Bold (**text**)
+            elif match.group(3):
+                rich_text.append({
+                    'type': 'text',
+                    'text': {'content': match.group(3)},
+                    'annotations': {'bold': True}
+                })
+            # Italic (*text*)
+            elif match.group(4):
+                rich_text.append({
+                    'type': 'text',
+                    'text': {'content': match.group(4)},
+                    'annotations': {'italic': True}
+                })
+            # Code (`text`)
+            elif match.group(5):
+                rich_text.append({
+                    'type': 'text',
+                    'text': {'content': match.group(5)},
+                    'annotations': {'code': True}
+                })
+            # Link ([text](url))
+            elif match.group(6) and match.group(7):
+                rich_text.append({
+                    'type': 'text',
+                    'text': {'content': match.group(6), 'link': {'url': match.group(7)}}
+                })
+
+            last_end = match.end()
+
+        # Add remaining plain text
+        if last_end < len(text):
+            remaining = text[last_end:]
+            if remaining:
+                rich_text.append({'type': 'text', 'text': {'content': remaining}})
+
+        # If no formatting found, return simple text
+        if not rich_text:
+            rich_text.append({'type': 'text', 'text': {'content': text}})
+
+        return rich_text
+
+    def _create_paragraph_block(self, text: str) -> Dict[str, Any]:
+        """Create a paragraph block."""
+        return {
+            'object': 'block',
+            'type': 'paragraph',
+            'paragraph': {'rich_text': self._parse_rich_text(text)}
+        }
+
+    def _create_heading_block(self, text: str, level: int) -> Dict[str, Any]:
+        """Create a heading block (level 1, 2, or 3)."""
+        heading_type = f'heading_{level}'
+        return {
+            'object': 'block',
+            'type': heading_type,
+            heading_type: {'rich_text': self._parse_rich_text(text)}
+        }
+
+    def _create_bulleted_list_block(self, text: str) -> Dict[str, Any]:
+        """Create a bulleted list item block."""
+        return {
+            'object': 'block',
+            'type': 'bulleted_list_item',
+            'bulleted_list_item': {'rich_text': self._parse_rich_text(text)}
+        }
+
+    def _create_numbered_list_block(self, text: str) -> Dict[str, Any]:
+        """Create a numbered list item block."""
+        return {
+            'object': 'block',
+            'type': 'numbered_list_item',
+            'numbered_list_item': {'rich_text': self._parse_rich_text(text)}
+        }
+
+    def _create_code_block(self, code: str, language: str = 'plain text') -> Dict[str, Any]:
+        """Create a code block."""
+        # Notion has specific language identifiers
+        language_map = {
+            'python': 'python',
+            'py': 'python',
+            'javascript': 'javascript',
+            'js': 'javascript',
+            'typescript': 'typescript',
+            'ts': 'typescript',
+            'bash': 'bash',
+            'sh': 'bash',
+            'shell': 'bash',
+            'json': 'json',
+            'yaml': 'yaml',
+            'yml': 'yaml',
+            'sql': 'sql',
+            'html': 'html',
+            'css': 'css',
+            'java': 'java',
+            'go': 'go',
+            'rust': 'rust',
+            'c': 'c',
+            'cpp': 'c++',
+            'c++': 'c++',
+        }
+        notion_lang = language_map.get(language.lower(), 'plain text')
+
+        return {
+            'object': 'block',
+            'type': 'code',
+            'code': {
+                'rich_text': [{'type': 'text', 'text': {'content': code}}],
+                'language': notion_lang
+            }
+        }
+
+    def _create_quote_block(self, text: str) -> Dict[str, Any]:
+        """Create a quote block."""
+        return {
+            'object': 'block',
+            'type': 'quote',
+            'quote': {'rich_text': self._parse_rich_text(text)}
+        }
+
+    def _create_table_block(self, table_lines: List[str]) -> Dict[str, Any]:
+        """Create a table block from markdown table lines."""
+        # Parse header and rows
+        rows = []
+        for line in table_lines:
+            cells = [cell.strip() for cell in line.strip('|').split('|')]
+            rows.append(cells)
+
+        if not rows:
+            return self._create_paragraph_block("(empty table)")
+
+        # Determine table width
+        table_width = max(len(row) for row in rows)
+
+        # Build table children (rows)
+        table_rows = []
+        for row in rows:
+            # Pad row to table width
+            while len(row) < table_width:
+                row.append('')
+
+            table_rows.append({
+                'type': 'table_row',
+                'table_row': {
+                    'cells': [[{'type': 'text', 'text': {'content': cell}}] for cell in row]
+                }
+            })
+
+        return {
+            'object': 'block',
+            'type': 'table',
+            'table': {
+                'table_width': table_width,
+                'has_column_header': True,
+                'has_row_header': False,
+                'children': table_rows
+            }
+        }
+
+    def _append_blocks_batch(self, page_id: str, blocks: List[Dict[str, Any]]) -> bool:
+        """Append blocks to a page in batches of NOTION_MAX_BLOCKS_PER_REQUEST.
+
+        Returns True if all batches succeeded, False otherwise.
+        """
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+
+        # Split blocks into chunks
+        for i in range(0, len(blocks), NOTION_MAX_BLOCKS_PER_REQUEST):
+            chunk = blocks[i:i + NOTION_MAX_BLOCKS_PER_REQUEST]
+            try:
+                self._make_request("PATCH", url, json={"children": chunk})
+                logger.info(f"Appended {len(chunk)} blocks to page {page_id}")
+            except Exception as e:
+                logger.error(f"Error appending blocks to page {page_id}: {e}")
+                return False
+
+        return True
+
+    def _delete_all_blocks(self, page_id: str) -> bool:
+        """Delete all blocks from a page (to replace content)."""
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+
+        try:
+            response = self._make_request("GET", url)
+            blocks = response.get('results', [])
+
+            for block in blocks:
+                block_id = block['id']
+                delete_url = f"https://api.notion.com/v1/blocks/{block_id}"
+                try:
+                    self._make_request("DELETE", delete_url)
+                except Exception as e:
+                    logger.warning(f"Could not delete block {block_id}: {e}")
+
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting blocks from page {page_id}: {e}")
+            return False
+
+    def create_module(
+        self,
+        name: str,
+        description: str,
+        code_prefix: str,
+        application: str = "Backend",
+        status: str = "Draft",
+        content_markdown: str = ""
+    ) -> Optional[Module]:
+        """Create a new module in Notion.
+
+        Args:
+            name: Module name (title)
+            description: Short description
+            code_prefix: 2-3 character code prefix (e.g., 'CC', 'API')
+            application: One of 'Backend', 'Frontend', 'Service'
+            status: One of 'Draft', 'Review', 'Validated', 'Obsolete'
+            content_markdown: Full documentation in markdown format
+
+        Returns:
+            Module object if created successfully, None otherwise
+        """
+        url = "https://api.notion.com/v1/pages"
+
+        # Validate application and status
+        valid_applications = ['Backend', 'Frontend', 'Service']
+        valid_statuses = ['Draft', 'Review', 'Validated', 'Obsolete']
+
+        if application not in valid_applications:
+            logger.error(f"Invalid application: {application}. Must be one of {valid_applications}")
+            return None
+
+        if status not in valid_statuses:
+            logger.error(f"Invalid status: {status}. Must be one of {valid_statuses}")
+            return None
+
+        # Build page properties
+        payload = {
+            "parent": {"database_id": self.modules_db_id},
+            "properties": {
+                "name": {"title": [{"text": {"content": name}}]},
+                "description": {"rich_text": [{"text": {"content": description}}]},
+                "code_prefix": {"rich_text": [{"text": {"content": code_prefix.upper()}}]},
+                "application": {"select": {"name": application}},
+                "status": {"select": {"name": status}}
+            }
+        }
+
+        try:
+            # Create the page
+            response = self._make_request("POST", url, json=payload)
+            page_id = response['id']
+            logger.info(f"Created module page: {name} ({page_id})")
+
+            # Add content if provided
+            if content_markdown:
+                blocks = self._markdown_to_blocks(content_markdown)
+                if blocks:
+                    self._append_blocks_batch(page_id, blocks)
+
+            # Return the created module
+            return Module(
+                name=name,
+                description=description,
+                status=status,
+                application=application,
+                code_prefix=code_prefix.upper(),
+                notion_id=page_id,
+                content=content_markdown
+            )
+
+        except Exception as e:
+            logger.error(f"Error creating module {name}: {e}")
+            return None
+
+    def create_feature(
+        self,
+        code: str,
+        name: str,
+        module_id: str,
+        status: str = "Draft",
+        plan: List[str] = None,
+        user_rights: List[str] = None,
+        content_markdown: str = ""
+    ) -> Optional[Feature]:
+        """Create a new feature in Notion.
+
+        Args:
+            code: Feature code (e.g., 'CC01', 'API02')
+            name: Feature name (title)
+            module_id: Notion ID of the parent module
+            status: One of 'Draft', 'Review', 'Validated', 'Obsolete'
+            plan: List of subscription plans
+            user_rights: List of user rights
+            content_markdown: Full documentation in markdown format
+
+        Returns:
+            Feature object if created successfully, None otherwise
+        """
+        url = "https://api.notion.com/v1/pages"
+
+        valid_statuses = ['Draft', 'Review', 'Validated', 'Obsolete']
+        if status not in valid_statuses:
+            logger.error(f"Invalid status: {status}. Must be one of {valid_statuses}")
+            return None
+
+        # Build page properties
+        properties = {
+            "name": {"title": [{"text": {"content": name}}]},
+            "code": {"rich_text": [{"text": {"content": code.upper()}}]},
+            "module": {"relation": [{"id": module_id}]},
+            "status": {"select": {"name": status}}
+        }
+
+        # Add optional multi-select fields
+        if plan:
+            properties["plan"] = {"multi_select": [{"name": p} for p in plan]}
+
+        if user_rights:
+            properties["user_rights"] = {"multi_select": [{"name": r} for r in user_rights]}
+
+        payload = {
+            "parent": {"database_id": self.features_db_id},
+            "properties": properties
+        }
+
+        try:
+            # Create the page
+            response = self._make_request("POST", url, json=payload)
+            page_id = response['id']
+            logger.info(f"Created feature page: {code} - {name} ({page_id})")
+
+            # Add content if provided
+            if content_markdown:
+                blocks = self._markdown_to_blocks(content_markdown)
+                if blocks:
+                    self._append_blocks_batch(page_id, blocks)
+
+            # Get module info for return object
+            module = self.get_module_by_id(module_id)
+
+            return Feature(
+                code=code.upper(),
+                name=name,
+                status=status,
+                module_name=module.name if module else "Unknown",
+                plan=plan or [],
+                user_rights=user_rights or [],
+                notion_id=page_id,
+                content=content_markdown,
+                module=module
+            )
+
+        except Exception as e:
+            logger.error(f"Error creating feature {code}: {e}")
+            return None
+
+    def update_page_content(
+        self,
+        page_id: str,
+        content_markdown: str,
+        replace: bool = True
+    ) -> bool:
+        """Update the content of a Notion page.
+
+        Args:
+            page_id: Notion page ID
+            content_markdown: New content in markdown format
+            replace: If True, replace all content. If False, append to existing.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if replace:
+                # Delete existing blocks first
+                if not self._delete_all_blocks(page_id):
+                    logger.warning(f"Could not delete existing blocks from {page_id}")
+
+            # Convert markdown to blocks and append
+            blocks = self._markdown_to_blocks(content_markdown)
+            if blocks:
+                return self._append_blocks_batch(page_id, blocks)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating page content {page_id}: {e}")
+            return False
+
+    def update_module_properties(
+        self,
+        module_id: str,
+        name: str = None,
+        description: str = None,
+        code_prefix: str = None,
+        application: str = None,
+        status: str = None
+    ) -> bool:
+        """Update module properties (not content).
+
+        Args:
+            module_id: Notion page ID of the module
+            name: New name (optional)
+            description: New description (optional)
+            code_prefix: New code prefix (optional)
+            application: New application type (optional)
+            status: New status (optional)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        url = f"https://api.notion.com/v1/pages/{module_id}"
+
+        properties = {}
+
+        if name is not None:
+            properties["name"] = {"title": [{"text": {"content": name}}]}
+
+        if description is not None:
+            properties["description"] = {"rich_text": [{"text": {"content": description}}]}
+
+        if code_prefix is not None:
+            properties["code_prefix"] = {"rich_text": [{"text": {"content": code_prefix.upper()}}]}
+
+        if application is not None:
+            valid_applications = ['Backend', 'Frontend', 'Service']
+            if application not in valid_applications:
+                logger.error(f"Invalid application: {application}")
+                return False
+            properties["application"] = {"select": {"name": application}}
+
+        if status is not None:
+            valid_statuses = ['Draft', 'Review', 'Validated', 'Obsolete']
+            if status not in valid_statuses:
+                logger.error(f"Invalid status: {status}")
+                return False
+            properties["status"] = {"select": {"name": status}}
+
+        if not properties:
+            logger.warning("No properties to update")
+            return True
+
+        try:
+            self._make_request("PATCH", url, json={"properties": properties})
+            logger.info(f"Updated module properties: {module_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating module {module_id}: {e}")
+            return False
+
+    def update_feature_properties(
+        self,
+        feature_id: str,
+        name: str = None,
+        code: str = None,
+        module_id: str = None,
+        status: str = None,
+        plan: List[str] = None,
+        user_rights: List[str] = None
+    ) -> bool:
+        """Update feature properties (not content).
+
+        Args:
+            feature_id: Notion page ID of the feature
+            name: New name (optional)
+            code: New code (optional)
+            module_id: New parent module ID (optional)
+            status: New status (optional)
+            plan: New plans list (optional)
+            user_rights: New user rights list (optional)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        url = f"https://api.notion.com/v1/pages/{feature_id}"
+
+        properties = {}
+
+        if name is not None:
+            properties["name"] = {"title": [{"text": {"content": name}}]}
+
+        if code is not None:
+            properties["code"] = {"rich_text": [{"text": {"content": code.upper()}}]}
+
+        if module_id is not None:
+            properties["module"] = {"relation": [{"id": module_id}]}
+
+        if status is not None:
+            valid_statuses = ['Draft', 'Review', 'Validated', 'Obsolete']
+            if status not in valid_statuses:
+                logger.error(f"Invalid status: {status}")
+                return False
+            properties["status"] = {"select": {"name": status}}
+
+        if plan is not None:
+            properties["plan"] = {"multi_select": [{"name": p} for p in plan]}
+
+        if user_rights is not None:
+            properties["user_rights"] = {"multi_select": [{"name": r} for r in user_rights]}
+
+        if not properties:
+            logger.warning("No properties to update")
+            return True
+
+        try:
+            self._make_request("PATCH", url, json={"properties": properties})
+            logger.info(f"Updated feature properties: {feature_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating feature {feature_id}: {e}")
+            return False
+
+    def get_module_by_prefix(self, code_prefix: str) -> Optional[Module]:
+        """Get a module by its code prefix.
+
+        Args:
+            code_prefix: The module's code prefix (e.g., 'CC', 'API')
+
+        Returns:
+            Module if found, None otherwise
+        """
+        url = f"https://api.notion.com/v1/databases/{self.modules_db_id}/query"
+
+        payload = {
+            "filter": {
+                "property": "code_prefix",
+                "rich_text": {
+                    "equals": code_prefix.upper()
+                }
+            }
+        }
+
+        try:
+            response = self._make_request("POST", url, json=payload)
+            results = response.get('results', [])
+
+            if not results:
+                logger.warning(f"Module with prefix {code_prefix} not found")
+                return None
+
+            page = results[0]
+            return self.get_module_by_id(page['id'])
+
+        except Exception as e:
+            logger.error(f"Error getting module by prefix {code_prefix}: {e}")
+            return None
+
+    def list_modules(self) -> List[Module]:
+        """List all modules in the database.
+
+        Returns:
+            List of Module objects
+        """
+        url = f"https://api.notion.com/v1/databases/{self.modules_db_id}/query"
+
+        try:
+            response = self._make_request("POST", url, json={})
+            modules = []
+
+            for result in response.get('results', []):
+                module = self.get_module_by_id(result['id'])
+                if module:
+                    modules.append(module)
+
+            return modules
+
+        except Exception as e:
+            logger.error(f"Error listing modules: {e}")
+            return []
+
+    def list_features_for_module(self, module_id: str) -> List[Feature]:
+        """List all features for a specific module.
+
+        Args:
+            module_id: Notion ID of the module
+
+        Returns:
+            List of Feature objects
+        """
+        url = f"https://api.notion.com/v1/databases/{self.features_db_id}/query"
+
+        payload = {
+            "filter": {
+                "property": "module",
+                "relation": {
+                    "contains": module_id
+                }
+            }
+        }
+
+        try:
+            response = self._make_request("POST", url, json=payload)
+            features = []
+
+            for result in response.get('results', []):
+                properties = result['properties']
+                code = self._get_property_value(properties, 'code', 'rich_text')
+                if code:
+                    feature = self.get_feature(code)
+                    if feature:
+                        features.append(feature)
+
+            return features
+
+        except Exception as e:
+            logger.error(f"Error listing features for module {module_id}: {e}")
+            return []
+
+    def get_next_feature_code(self, module_id: str) -> str:
+        """Get the next available feature code for a module.
+
+        Args:
+            module_id: Notion ID of the module
+
+        Returns:
+            Next feature code (e.g., 'CC03' if CC01 and CC02 exist)
+        """
+        module = self.get_module_by_id(module_id)
+        if not module:
+            return "XX01"
+
+        prefix = module.code_prefix
+        features = self.list_features_for_module(module_id)
+
+        if not features:
+            return f"{prefix}01"
+
+        # Extract numbers from existing codes
+        numbers = []
+        for feature in features:
+            if feature.code.startswith(prefix):
+                try:
+                    num = int(feature.code[len(prefix):])
+                    numbers.append(num)
+                except ValueError:
+                    continue
+
+        next_num = max(numbers) + 1 if numbers else 1
+        return f"{prefix}{next_num:02d}"
 

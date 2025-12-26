@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Setup script for NotionDev - keeping for backward compatibility"""
+"""Setup script for NotionDev - keeping for backward compatibility with older pip versions"""
 
 from setuptools import setup, find_packages
 
@@ -9,10 +9,10 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="notion-dev",
-    version="1.1.0",
+    version="1.2.0",
     author="Your Name",
     author_email="your.email@example.com",
-    description="Integration tool for Notion, Asana and Git workflows",
+    description="Integration tool for Notion, Asana and Git workflows with MCP server support",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/notion-dev",
@@ -38,9 +38,13 @@ setup(
         "requests>=2.31.0",
         "gitpython>=3.1.40",
     ],
+    extras_require={
+        "mcp": ["mcp>=1.0.0"],
+    },
     entry_points={
         "console_scripts": [
             "notion-dev=notion_dev.cli.main:cli",
+            "notion-dev-mcp=notion_dev.mcp_server.server:main",
         ],
     },
 )
