@@ -750,7 +750,7 @@ def create_ticket(ctx, name, feature, notes, due, output_json):
                 }
             }, indent=2, ensure_ascii=False))
         else:
-            console.print(f"[green]✅ Ticket créé avec succès![/green]")
+            console.print("[green]✅ Ticket créé avec succès![/green]")
             console.print(f"[bold]ID:[/bold] {task.gid}")
             console.print(f"[bold]Nom:[/bold] {task.name}")
             if task.feature_code:
@@ -822,7 +822,7 @@ def update_ticket(ctx, task_id, name, notes, append, due, assignee, output_json)
                 }
             }, indent=2, ensure_ascii=False))
         else:
-            console.print(f"[green]✅ Ticket mis à jour![/green]")
+            console.print("[green]✅ Ticket mis à jour![/green]")
             console.print(f"[bold]ID:[/bold] {task.gid}")
             console.print(f"[bold]Nom:[/bold] {task.name}")
             if task.feature_code:
