@@ -9,7 +9,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="notion-dev",
-    version="1.2.3",
+    version="1.2.4",
     author="Your Name",
     author_email="your.email@example.com",
     description="Integration tool for Notion, Asana and Git workflows with MCP server support",
@@ -37,6 +37,7 @@ setup(
         "rich>=13.7.0",
         "requests>=2.31.0",
         "gitpython>=3.1.40",
+        "urllib3<2",  # Required for compatibility with LibreSSL on macOS
     ],
     extras_require={
         "mcp": ["mcp>=1.0.0"],
