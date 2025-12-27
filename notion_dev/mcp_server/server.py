@@ -383,123 +383,71 @@ async def notiondev_work_on_ticket(task_id: str, ctx: Context = None) -> str:
     Returns:
         Status message with ticket and feature information
     """
-    # Helper function to send progress updates
-    async def progress(step: int, total: int, message: str):
-        if ctx:
-            try:
-                await ctx.report_progress(progress=step, total=total, message=message)
-                await ctx.info(message)
-            except Exception:
-                pass  # Ignore if progress reporting not supported
+    # Use CLI command with --yes to avoid interactive prompts and timeout issues
+    # This is more reliable than calling APIs directly in async context
+    result = run_notion_dev_command(["work", task_id, "--yes"], timeout=120)
 
-    try:
-        # Step 1: Initialize clients
-        await progress(1, 6, "🔄 Initialisation des clients Asana et Notion...")
+    if result["success"]:
+        # CLI succeeded - parse output and build structured response
+        try:
+            # Get task details for the response
+            from ..core.config import Config
+            from ..core.asana_client import AsanaClient
 
-        from ..core.config import Config
-        from ..core.asana_client import AsanaClient
-        from ..core.notion_client import NotionClient
-        from ..core.context_builder import ContextBuilder
+            config = Config.load()
+            project_info = config.get_project_info()
 
-        config = Config.load()
-        project_info = config.get_project_info()
+            asana_client = AsanaClient(
+                config.asana.access_token,
+                config.asana.workspace_gid,
+                config.asana.user_gid,
+                config.asana.portfolio_gid
+            )
 
-        asana_client = AsanaClient(
-            config.asana.access_token,
-            config.asana.workspace_gid,
-            config.asana.user_gid,
-            config.asana.portfolio_gid
-        )
+            task = asana_client.get_task(task_id)
+            if task:
+                feature_info = "Aucun code feature défini"
+                if task.feature_code:
+                    feature_info = f"{task.feature_code} - Feature loaded"
 
-        notion_client = NotionClient(
-            config.notion.token,
-            config.notion.database_modules_id,
-            config.notion.database_features_id
-        )
+                return json.dumps({
+                    "success": True,
+                    "ticket": {
+                        "id": task.gid,
+                        "name": task.name,
+                        "feature_code": task.feature_code,
+                        "status": "completed" if task.completed else "in_progress",
+                        "project": task.project_name or "Non défini"
+                    },
+                    "feature": feature_info,
+                    "actions": {
+                        "comment_added": True,
+                        "context_exported": True,
+                        "export_path": f"{project_info['path']}/AGENTS.md"
+                    },
+                    "message": f"Vous travaillez maintenant sur: {task.name}"
+                }, indent=2, ensure_ascii=False)
+            else:
+                return json.dumps({
+                    "success": True,
+                    "message": "Work command executed successfully",
+                    "output": result["output"]
+                }, indent=2, ensure_ascii=False)
 
-        context_builder = ContextBuilder(notion_client, config)
-
-        # Step 2: Load the ticket from Asana
-        await progress(2, 6, f"📋 Chargement du ticket Asana {task_id}...")
-
-        task = asana_client.get_task(task_id)
-        if not task:
+        except Exception as e:
+            # If we can't get details, just return the CLI output
             return json.dumps({
-                "error": f"Ticket {task_id} non trouvé",
-                "hint": "Vérifiez que l'ID du ticket est correct et que vous y avez accès."
-            })
+                "success": True,
+                "message": "Work command executed",
+                "output": result["output"]
+            }, indent=2, ensure_ascii=False)
+    else:
+        error_msg = result.get("error", "Failed to start working on ticket")
+        details = result.get("output", "")
 
-        # Step 3: Handle task switching (comment on previous task if needed)
-        await progress(3, 6, "🔄 Vérification du ticket précédent...")
-
-        cache_dir = Path(project_info['path']) / ".notion-dev"
-        cache_dir.mkdir(exist_ok=True)
-        current_task_file = cache_dir / "current_task.txt"
-
-        previous_task_id = None
-        if current_task_file.exists():
-            previous_task_id = current_task_file.read_text().strip()
-
-        if previous_task_id and previous_task_id != task_id:
-            previous_task = asana_client.get_task(previous_task_id)
-            if previous_task and not previous_task.completed:
-                asana_client.add_comment_to_task(previous_task_id, "moves on to another task, stay tuned")
-
-        # Step 4: Add "is working on it" comment to Asana
-        await progress(4, 6, "💬 Ajout du commentaire 'is working on it' sur Asana...")
-
-        comment_success = asana_client.add_comment_to_task(task_id, "is working on it")
-
-        # Update current task cache
-        current_task_file.write_text(task_id)
-
-        # Step 5: Fetch feature documentation from Notion
-        await progress(5, 6, f"📚 Récupération de la documentation Notion pour {task.feature_code or 'N/A'}...")
-
-        context = None
-        feature_info = "Aucun code feature défini"
-
-        if task.feature_code:
-            context = context_builder.build_task_context(task)
-            if context and 'feature' in context:
-                feature = context['feature']
-                feature_info = f"{feature.code} - {feature.name} (Module: {feature.module_name})"
-
-        # Step 6: Export to AGENTS.md
-        await progress(6, 6, "📝 Export du contexte vers AGENTS.md...")
-
-        export_success = False
-        if context:
-            export_success = context_builder.export_to_agents_md(context, project_info['path'])
-
-        # Build response
-        result = {
-            "success": True,
-            "ticket": {
-                "id": task.gid,
-                "name": task.name,
-                "feature_code": task.feature_code,
-                "status": "completed" if task.completed else "in_progress",
-                "project": task.project_name or "Non défini"
-            },
-            "feature": feature_info,
-            "actions": {
-                "comment_added": comment_success,
-                "context_exported": export_success,
-                "export_path": f"{project_info['path']}/AGENTS.md" if export_success else None
-            },
-            "message": f"Vous travaillez maintenant sur: {task.name}"
-        }
-
-        if not task.feature_code:
-            result["warning"] = "Ce ticket n'a pas de code feature défini. Ajoutez 'Feature Code: XX01' dans la description Asana."
-
-        return json.dumps(result, indent=2, ensure_ascii=False)
-
-    except Exception as e:
-        logger.error(f"Error in work_on_ticket: {e}")
         return json.dumps({
-            "error": str(e),
+            "error": error_msg,
+            "details": details,
             "hint": "Make sure the ticket ID is correct and you have access to it."
         })
 

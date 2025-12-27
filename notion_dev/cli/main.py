@@ -51,6 +51,7 @@ def setup_logging(config: Config):
 
 
 @click.group()
+@click.version_option(package_name='notion-dev', prog_name='notion-dev')
 @click.option('--config', default=None, help='Path to config file')
 @click.pass_context
 def cli(ctx, config):
