@@ -19,7 +19,10 @@ class Module:
     code_prefix: str
     notion_id: str
     content: str = ""
-    
+    repository_url: Optional[str] = None  # GitHub repository URL
+    code_path: Optional[str] = None  # Path within repository
+    branch: Optional[str] = None  # Git branch to clone
+
     @property
     def is_active(self) -> bool:
         return self.status in ['review', 'validated']

@@ -59,10 +59,13 @@ For NotionDev to work, your Notion workspace must contain 2 databases with the a
 
 **"Modules" Database:**
 - `name` (Title): Module name
-- `description` (Text): Short description  
+- `description` (Text): Short description
 - `status` (Select): draft, review, validated, obsolete
 - `application` (Select): service, backend, frontend
 - `code_prefix` (Text): Feature code prefix (AU, DA, API...)
+- `repository_url` (URL): GitHub repository URL - *optional, for code cloning*
+- `code_path` (Text): Path within repository - *optional*
+- `branch` (Text): Git branch to clone - *optional, defaults to default branch*
 
 **"Features" Database:**
 - `code` (Text): Unique code (AU01, DA02...) - **required**
@@ -137,6 +140,12 @@ EOF
 4. Get your workspace ID
 5. Get your user account ID
 
+**🔑 GitHub Token (Optional):**
+1. Go to https://github.com/settings/tokens
+2. Generate a new token with `repo` scope (for private repositories)
+3. Copy the generated token
+4. This is only needed if you want to clone private repositories for code analysis
+
 #### 2. Configure config.yml
 
 ```bash
@@ -150,13 +159,19 @@ nano ~/.notion-dev/config.yml
 ```yaml
 notion:
   token: "secret_YOUR_NOTION_TOKEN"
-  database_modules_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  
+  database_modules_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
   database_features_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 asana:
   access_token: "x/YOUR_ASANA_TOKEN"
   workspace_gid: "1234567890123456"
   user_gid: "1234567890123456"
+
+# Optional: GitHub configuration for repository cloning
+github:
+  token: "ghp_YOUR_GITHUB_TOKEN"  # Optional, only for private repos
+  clone_dir: "/tmp/notiondev"     # Where to clone repositories
+  shallow_clone: true             # Use --depth 1 for faster cloning
 ```
 
 #### 3. Test Installation
@@ -223,6 +238,9 @@ Once configured, the following tools are available in your AI assistant:
 | `notiondev_create_feature` | Create a new feature in Notion |
 | `notiondev_update_module_content` | Update module documentation |
 | `notiondev_update_feature_content` | Update feature documentation |
+| `notiondev_clone_module` | Clone module's repository for code analysis |
+| `notiondev_get_cloned_repo_info` | Get info about a cloned repository |
+| `notiondev_cleanup_cloned_repos` | Remove all cloned repositories |
 
 ## 📖 Usage
 

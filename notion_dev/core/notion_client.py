@@ -258,19 +258,24 @@ class NotionClient:
     def get_module_by_id(self, module_id: str) -> Optional[Module]:
         """Récupère un module par son ID Notion"""
         url = f"https://api.notion.com/v1/pages/{module_id}"
-        
+
         try:
             response = self._make_request("GET", url)
             properties = response['properties']
-            
+
             name = self._get_property_value(properties, 'name', 'title')
             description = self._get_property_value(properties, 'description', 'rich_text')
             status = self._get_property_value(properties, 'status', 'select')
             application = self._get_property_value(properties, 'application', 'select')
             code_prefix = self._get_property_value(properties, 'code_prefix', 'rich_text')
-            
+
+            # New GitHub-related properties (optional)
+            repository_url = self._get_property_value(properties, 'repository_url', 'url')
+            code_path = self._get_property_value(properties, 'code_path', 'rich_text')
+            branch = self._get_property_value(properties, 'branch', 'rich_text')
+
             content = self._extract_page_content(module_id)
-            
+
             return Module(
                 name=name,
                 description=description,
@@ -278,9 +283,12 @@ class NotionClient:
                 application=application,
                 code_prefix=code_prefix,
                 notion_id=module_id,
-                content=content
+                content=content,
+                repository_url=repository_url,
+                code_path=code_path,
+                branch=branch
             )
-            
+
         except Exception as e:
             logger.error(f"Error retrieving module {module_id}: {e}")
             return None
@@ -289,9 +297,9 @@ class NotionClient:
         """Extrait la valeur d'une propriété Notion selon son type"""
         if prop_name not in properties:
             return None
-            
+
         prop = properties[prop_name]
-        
+
         if prop_type == 'title':
             return ''.join([t['plain_text'] for t in prop['title']])
         elif prop_type == 'rich_text':
@@ -302,6 +310,8 @@ class NotionClient:
             return [item['name'] for item in prop['multi_select']]
         elif prop_type == 'relation':
             return [item['id'] for item in prop['relation']]
+        elif prop_type == 'url':
+            return prop.get('url')
         else:
             return prop.get(prop_type)
     

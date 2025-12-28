@@ -33,6 +33,13 @@ class LoggingConfig:
     level: str = "INFO"
     file: str = "notion-dev.log"
 
+
+@dataclass
+class GitHubConfig:
+    token: Optional[str] = None
+    clone_dir: str = "/tmp/notiondev"
+    shallow_clone: bool = True
+
 @dataclass
 class Config:
     notion: NotionConfig
@@ -40,7 +47,8 @@ class Config:
     ai: AIConfig
     git: GitConfig
     logging: LoggingConfig
-    
+    github: GitHubConfig
+
     # Propriétés auto-détectées (pas dans le fichier config)
     _repository_path: Optional[str] = None
     _project_name: Optional[str] = None
@@ -88,13 +96,21 @@ class Config:
             level=logging_data.get('level', 'INFO'),
             file=logging_data.get('file', 'notion-dev.log')
         )
-        
+
+        github_data = data.get('github', {})
+        github_config = GitHubConfig(
+            token=github_data.get('token'),
+            clone_dir=github_data.get('clone_dir', '/tmp/notiondev'),
+            shallow_clone=github_data.get('shallow_clone', True)
+        )
+
         return cls(
             notion=notion_config,
             asana=asana_config,
             ai=ai_config,
             git=git_config,
-            logging=logging_config
+            logging=logging_config,
+            github=github_config
         )
     
     @property

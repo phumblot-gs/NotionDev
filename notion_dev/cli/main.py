@@ -93,10 +93,11 @@ def cli(ctx, config):
 @click.option('--asana-workspace', envvar='ASANA_WORKSPACE', help='Asana workspace GID')
 @click.option('--asana-user', envvar='ASANA_USER', help='Asana user GID')
 @click.option('--asana-portfolio', envvar='ASANA_PORTFOLIO', help='Asana portfolio GID (optional)')
+@click.option('--github-token', envvar='GITHUB_TOKEN', help='GitHub personal access token (optional, for cloning repos)')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts (non-interactive mode)')
 @click.pass_context
 def login(ctx, notion_token, notion_modules_db, notion_features_db,
-          asana_token, asana_workspace, asana_user, asana_portfolio, yes):
+          asana_token, asana_workspace, asana_user, asana_portfolio, github_token, yes):
     """Configure authentication for Notion and Asana.
 
     Run interactively to be guided through the setup, or provide all options
@@ -110,7 +111,8 @@ def login(ctx, notion_token, notion_modules_db, notion_features_db,
             --notion-features-db xxx \\
             --asana-token xxx \\
             --asana-workspace xxx \\
-            --asana-user xxx               # Non-interactive mode
+            --asana-user xxx \\
+            --github-token ghp_xxx         # Non-interactive mode with GitHub
     """
     import yaml
     import os
@@ -235,6 +237,40 @@ def login(ctx, notion_token, notion_modules_db, notion_features_db,
         if not asana_portfolio:
             asana_portfolio = None
 
+    # Collect GitHub configuration (optional)
+    console.print("\n[bold cyan]== GitHub Configuration (Optional) ==[/bold cyan]")
+    console.print("Get your personal access token at: https://github.com/settings/tokens")
+    console.print("[dim]GitHub token is optional - only needed for cloning private repositories[/dim]")
+
+    if not github_token and not yes:
+        github_token = Prompt.ask("GitHub Personal Access Token (optional)", password=True, default="")
+        if not github_token:
+            github_token = None
+
+    # Validate GitHub connection if token provided
+    if github_token:
+        console.print("\n[dim]Testing GitHub connection...[/dim]")
+        try:
+            github_response = requests.get(
+                "https://api.github.com/user",
+                headers={"Authorization": f"token {github_token}"}
+            )
+            if github_response.status_code == 200:
+                github_user = github_response.json().get("login", "Unknown")
+                console.print(f"[green]✓ GitHub connected as: {github_user}[/green]")
+            else:
+                console.print(f"[yellow]⚠ GitHub authentication failed (status {github_response.status_code})[/yellow]")
+                if not yes:
+                    if not Confirm.ask("Continue without GitHub?", default=True):
+                        raise click.Abort()
+                    github_token = None
+        except Exception as e:
+            console.print(f"[yellow]⚠ Could not verify GitHub token: {e}[/yellow]")
+            if not yes:
+                if not Confirm.ask("Continue without GitHub?", default=True):
+                    raise click.Abort()
+                github_token = None
+
     # Validate Asana connection
     console.print("\n[dim]Testing Asana connection...[/dim]")
     asana_client = AsanaClient(asana_token, asana_workspace, asana_user, asana_portfolio)
@@ -282,6 +318,13 @@ def login(ctx, notion_token, notion_modules_db, notion_features_db,
     if asana_portfolio:
         config_data['asana']['portfolio_gid'] = asana_portfolio
 
+    if github_token:
+        config_data['github'] = {
+            'token': github_token,
+            'clone_dir': '/tmp/notiondev',
+            'shallow_clone': True
+        }
+
     # Save config
     config_dir.mkdir(parents=True, exist_ok=True)
     with open(config_file, 'w') as f:
@@ -327,7 +370,8 @@ def status(ctx, output_json):
     results = {
         "config_file": str(config_file),
         "notion": None,
-        "asana": None
+        "asana": None,
+        "github": None
     }
 
     # Test Notion
@@ -385,6 +429,34 @@ def status(ctx, output_json):
         results["asana"] = {"success": False, "errors": [str(e)]}
         if not output_json:
             console.print(f"[red]✗ Error: {e}[/red]")
+
+    # Test GitHub (optional)
+    if not output_json:
+        console.print("\n[bold cyan]== GitHub Status ==[/bold cyan]")
+
+    if hasattr(config, 'github') and config.github and config.github.token:
+        try:
+            github_response = requests.get(
+                "https://api.github.com/user",
+                headers={"Authorization": f"token {config.github.token}"}
+            )
+            if github_response.status_code == 200:
+                github_user = github_response.json().get("login", "Unknown")
+                results["github"] = {"success": True, "user": github_user}
+                if not output_json:
+                    console.print(f"[green]✓ Connected as: {github_user}[/green]")
+            else:
+                results["github"] = {"success": False, "errors": [f"HTTP {github_response.status_code}"]}
+                if not output_json:
+                    console.print(f"[red]✗ Authentication failed (status {github_response.status_code})[/red]")
+        except Exception as e:
+            results["github"] = {"success": False, "errors": [str(e)]}
+            if not output_json:
+                console.print(f"[red]✗ Error: {e}[/red]")
+    else:
+        results["github"] = {"success": True, "configured": False}
+        if not output_json:
+            console.print("[dim]  Not configured (optional)[/dim]")
 
     # Summary
     all_ok = (results["notion"] and results["notion"].get("success", False) and

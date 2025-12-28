@@ -187,6 +187,23 @@ def get_asana_client():
         return None
 
 
+def get_github_client():
+    """Get a configured GitHubClient instance."""
+    try:
+        from ..core.config import Config
+        from ..core.github_client import GitHubClient
+
+        config = Config.load()
+        return GitHubClient(
+            token=config.github.token if hasattr(config, 'github') and config.github else None,
+            clone_dir=config.github.clone_dir if hasattr(config, 'github') and config.github else "/tmp/notiondev",
+            shallow_clone=config.github.shallow_clone if hasattr(config, 'github') and config.github else True
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize GitHubClient: {e}")
+        return None
+
+
 # =============================================================================
 # MCP Tools - Installation & Setup
 # =============================================================================
@@ -993,6 +1010,175 @@ async def notiondev_update_feature_content(
             })
         else:
             return json.dumps({"error": "Failed to update feature content"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# =============================================================================
+# MCP Tools - GitHub Integration
+# =============================================================================
+
+@mcp.tool()
+async def notiondev_clone_module(
+    module_prefix: str,
+    force: bool = False
+) -> str:
+    """Clone a module's repository to local filesystem for code analysis.
+
+    This tool reads the repository_url from the Notion module and clones it
+    to a local directory for AI-assisted code analysis.
+
+    The module must have repository_url property set in Notion.
+
+    Args:
+        module_prefix: The module's code prefix (e.g., 'CC', 'API')
+        force: If True, remove existing clone and re-clone fresh
+
+    Returns:
+        JSON with clone status and local path
+    """
+    notion = get_notion_client()
+    if not notion:
+        return json.dumps({"error": "Failed to initialize Notion client"})
+
+    github = get_github_client()
+    if not github:
+        return json.dumps({"error": "Failed to initialize GitHub client"})
+
+    try:
+        # Get module from Notion
+        module = notion.get_module_by_prefix(module_prefix)
+        if not module:
+            return json.dumps({"error": f"Module with prefix '{module_prefix}' not found"})
+
+        # Check if repository_url is configured
+        if not module.repository_url:
+            return json.dumps({
+                "error": f"Module '{module.name}' does not have a repository_url configured",
+                "hint": "Add the repository_url property to the module in Notion"
+            })
+
+        # Clone the repository
+        result = github.clone_repository(
+            repo_url=module.repository_url,
+            branch=module.branch,
+            force=force
+        )
+
+        if result["success"]:
+            # Build response with useful information
+            response = {
+                "success": True,
+                "message": f"Repository cloned successfully for module '{module.name}'",
+                "module": {
+                    "name": module.name,
+                    "code_prefix": module.code_prefix,
+                    "repository_url": module.repository_url,
+                    "branch": module.branch or "default"
+                },
+                "clone": {
+                    "path": result["path"],
+                    "code_path": module.code_path
+                }
+            }
+
+            # If code_path is specified, provide full path to code directory
+            if module.code_path:
+                full_code_path = os.path.join(result["path"], module.code_path)
+                response["clone"]["full_code_path"] = full_code_path
+                response["hint"] = f"Code is located at: {full_code_path}"
+            else:
+                response["hint"] = f"Repository cloned to: {result['path']}"
+
+            return json.dumps(response, indent=2)
+        else:
+            return json.dumps({
+                "error": result.get("error", "Clone failed"),
+                "repository_url": module.repository_url
+            })
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def notiondev_get_cloned_repo_info(module_prefix: str) -> str:
+    """Get information about a cloned repository for a module.
+
+    Args:
+        module_prefix: The module's code prefix (e.g., 'CC', 'API')
+
+    Returns:
+        JSON with repository information including path, branch, and last commit
+    """
+    notion = get_notion_client()
+    if not notion:
+        return json.dumps({"error": "Failed to initialize Notion client"})
+
+    github = get_github_client()
+    if not github:
+        return json.dumps({"error": "Failed to initialize GitHub client"})
+
+    try:
+        # Get module from Notion
+        module = notion.get_module_by_prefix(module_prefix)
+        if not module:
+            return json.dumps({"error": f"Module with prefix '{module_prefix}' not found"})
+
+        if not module.repository_url:
+            return json.dumps({
+                "error": f"Module '{module.name}' does not have a repository_url configured"
+            })
+
+        # Get the local path for this repository
+        local_path = github._get_repo_local_path(module.repository_url)
+
+        # Get repository info
+        info = github.get_repository_info(local_path)
+
+        if not info["exists"]:
+            return json.dumps({
+                "error": "Repository not cloned",
+                "hint": f"Use notiondev_clone_module('{module_prefix}') to clone first"
+            })
+
+        return json.dumps({
+            "module": {
+                "name": module.name,
+                "code_prefix": module.code_prefix
+            },
+            "repository": {
+                "path": info["path"],
+                "branch": info["branch"],
+                "remote_url": info["remote_url"],
+                "last_commit": info["last_commit"],
+                "code_path": module.code_path,
+                "full_code_path": os.path.join(info["path"], module.code_path) if module.code_path else info["path"]
+            }
+        }, indent=2)
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def notiondev_cleanup_cloned_repos() -> str:
+    """Remove all cloned repositories to free up disk space.
+
+    Returns:
+        JSON with number of repositories removed
+    """
+    github = get_github_client()
+    if not github:
+        return json.dumps({"error": "Failed to initialize GitHub client"})
+
+    try:
+        count = github.cleanup_all()
+        return json.dumps({
+            "success": True,
+            "message": f"Removed {count} cloned repositories",
+            "clone_dir": github.clone_dir
+        })
     except Exception as e:
         return json.dumps({"error": str(e)})
 
