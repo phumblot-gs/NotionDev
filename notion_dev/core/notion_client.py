@@ -20,7 +20,65 @@ class NotionClient:
             "Content-Type": "application/json",
             "Notion-Version": "2022-06-28"
         }
-        
+
+    def test_connection(self) -> Dict[str, Any]:
+        """Test connection to Notion API and validate database access.
+
+        Returns:
+            Dict with 'success', 'user', 'modules_db', 'features_db' keys
+        """
+        result = {
+            "success": False,
+            "user": None,
+            "modules_db": None,
+            "features_db": None,
+            "errors": []
+        }
+
+        # Test 1: Verify token by getting user info
+        try:
+            url = "https://api.notion.com/v1/users/me"
+            response = self._make_request("GET", url)
+            result["user"] = response.get("name", response.get("id", "Unknown"))
+        except requests.HTTPError as e:
+            if e.response.status_code == 401:
+                result["errors"].append("Invalid Notion token (401 Unauthorized)")
+            else:
+                result["errors"].append(f"Notion API error: {e}")
+            return result
+        except Exception as e:
+            result["errors"].append(f"Connection error: {e}")
+            return result
+
+        # Test 2: Verify modules database access
+        try:
+            url = f"https://api.notion.com/v1/databases/{self.modules_db_id}"
+            response = self._make_request("GET", url)
+            result["modules_db"] = response.get("title", [{}])[0].get("plain_text", "Modules DB")
+        except requests.HTTPError as e:
+            if e.response.status_code == 404:
+                result["errors"].append(f"Modules database not found or not shared with integration")
+            else:
+                result["errors"].append(f"Modules database error: {e}")
+        except Exception as e:
+            result["errors"].append(f"Modules database error: {e}")
+
+        # Test 3: Verify features database access
+        try:
+            url = f"https://api.notion.com/v1/databases/{self.features_db_id}"
+            response = self._make_request("GET", url)
+            result["features_db"] = response.get("title", [{}])[0].get("plain_text", "Features DB")
+        except requests.HTTPError as e:
+            if e.response.status_code == 404:
+                result["errors"].append(f"Features database not found or not shared with integration")
+            else:
+                result["errors"].append(f"Features database error: {e}")
+        except Exception as e:
+            result["errors"].append(f"Features database error: {e}")
+
+        result["success"] = len(result["errors"]) == 0
+        return result
+
     def _make_request(self, method: str, url: str, **kwargs) -> Dict[Any, Any]:
         """Effectue une requête à l'API Notion"""
         try:

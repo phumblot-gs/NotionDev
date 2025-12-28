@@ -56,62 +56,351 @@ def setup_logging(config: Config):
 @click.pass_context
 def cli(ctx, config):
     """NotionDev - Intégration Notion ↔ Asana ↔ Git pour développeurs"""
+    ctx.ensure_object(dict)
+    ctx.obj['config_path'] = config
+
+    # Commands that don't require existing config
+    no_config_commands = ['login', 'status']
+
+    # Check if current command needs config
+    if ctx.invoked_subcommand in no_config_commands:
+        ctx.obj['config'] = None
+        return
+
     try:
-        ctx.ensure_object(dict)
         ctx.obj['config'] = Config.load(config)
-        
+
         # Setup logging with rotation
         setup_logging(ctx.obj['config'])
-        
+
         # Validation de la config
         if not ctx.obj['config'].validate():
-            console.print("[red]❌ Configuration invalide. Vérifiez votre fichier config.yml[/red]")
+            console.print("[red]❌ Invalid configuration. Check your config.yml file[/red]")
+            console.print("[yellow]Run 'notion-dev login' to configure authentication[/yellow]")
             raise click.Abort()
-            
-    except FileNotFoundError as e:
-        console.print(f"[red]❌ {e}[/red]")
-        console.print("[yellow]💡 Créez le fichier de configuration: ~/.notion-dev/config.yml[/yellow]")
+
+    except FileNotFoundError:
+        console.print("[red]❌ Configuration file not found[/red]")
+        console.print("[yellow]Run 'notion-dev login' to create your configuration[/yellow]")
         raise click.Abort()
 
+
 @cli.command()
-@click.pass_context  
-def debug_features(ctx):
-    """Debug: Liste toutes les features dans Notion"""
-    config = ctx.obj['config']
-    notion_client = NotionClient(config.notion.token, 
-                                config.notion.database_features_id, 
-                                config.notion.database_modules_id)
-    
-    # Query all features
-    url = f"https://api.notion.com/v1/databases/{config.notion.database_features_id}/query"
-    headers = {
-        "Authorization": f"Bearer {config.notion.token}",
-        "Content-Type": "application/json",
-        "Notion-Version": "2022-06-28"
+@click.option('--notion-token', envvar='NOTION_TOKEN', help='Notion integration token')
+@click.option('--notion-modules-db', envvar='NOTION_MODULES_DB', help='Notion Modules database ID')
+@click.option('--notion-features-db', envvar='NOTION_FEATURES_DB', help='Notion Features database ID')
+@click.option('--asana-token', envvar='ASANA_TOKEN', help='Asana personal access token')
+@click.option('--asana-workspace', envvar='ASANA_WORKSPACE', help='Asana workspace GID')
+@click.option('--asana-user', envvar='ASANA_USER', help='Asana user GID')
+@click.option('--asana-portfolio', envvar='ASANA_PORTFOLIO', help='Asana portfolio GID (optional)')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts (non-interactive mode)')
+@click.pass_context
+def login(ctx, notion_token, notion_modules_db, notion_features_db,
+          asana_token, asana_workspace, asana_user, asana_portfolio, yes):
+    """Configure authentication for Notion and Asana.
+
+    Run interactively to be guided through the setup, or provide all options
+    for non-interactive use (CI/CD, scripts).
+
+    Examples:
+        notion-dev login                    # Interactive mode
+        notion-dev login --yes \\
+            --notion-token secret_xxx \\
+            --notion-modules-db xxx \\
+            --notion-features-db xxx \\
+            --asana-token xxx \\
+            --asana-workspace xxx \\
+            --asana-user xxx               # Non-interactive mode
+    """
+    import yaml
+    import os
+
+    config_dir = Path.home() / ".notion-dev"
+    config_file = config_dir / "config.yml"
+
+    console.print(Panel.fit(
+        "[bold blue]NotionDev Configuration Setup[/bold blue]\n"
+        "This will configure your Notion and Asana authentication.",
+        title="Login"
+    ))
+
+    # Check if config already exists
+    if config_file.exists() and not yes:
+        if not Confirm.ask(f"Configuration file already exists at {config_file}. Overwrite?"):
+            console.print("[yellow]Aborted.[/yellow]")
+            return
+
+    # Collect Notion configuration
+    console.print("\n[bold cyan]== Notion Configuration ==[/bold cyan]")
+    console.print("Get your integration token at: https://www.notion.so/my-integrations")
+
+    if not notion_token:
+        if yes:
+            console.print("[red]Error: --notion-token is required in non-interactive mode[/red]")
+            raise click.Abort()
+        notion_token = Prompt.ask("Notion Integration Token", password=True)
+
+    if not notion_modules_db:
+        if yes:
+            console.print("[red]Error: --notion-modules-db is required in non-interactive mode[/red]")
+            raise click.Abort()
+        console.print("[dim]Find the database ID in the URL: notion.so/xxx?v=... (the xxx part)[/dim]")
+        notion_modules_db = Prompt.ask("Modules Database ID")
+
+    if not notion_features_db:
+        if yes:
+            console.print("[red]Error: --notion-features-db is required in non-interactive mode[/red]")
+            raise click.Abort()
+        notion_features_db = Prompt.ask("Features Database ID")
+
+    # Validate Notion connection
+    console.print("\n[dim]Testing Notion connection...[/dim]")
+    notion_client = NotionClient(notion_token, notion_modules_db, notion_features_db)
+    notion_result = notion_client.test_connection()
+
+    if notion_result["success"]:
+        console.print(f"[green]✓ Notion connected as: {notion_result['user']}[/green]")
+        console.print(f"[green]✓ Modules DB: {notion_result['modules_db']}[/green]")
+        console.print(f"[green]✓ Features DB: {notion_result['features_db']}[/green]")
+    else:
+        console.print("[red]✗ Notion connection failed:[/red]")
+        for error in notion_result["errors"]:
+            console.print(f"[red]  - {error}[/red]")
+        if not yes:
+            if not Confirm.ask("Continue anyway?", default=False):
+                raise click.Abort()
+
+    # Collect Asana configuration
+    console.print("\n[bold cyan]== Asana Configuration ==[/bold cyan]")
+    console.print("Get your personal access token at: https://app.asana.com/0/my-apps")
+
+    if not asana_token:
+        if yes:
+            console.print("[red]Error: --asana-token is required in non-interactive mode[/red]")
+            raise click.Abort()
+        asana_token = Prompt.ask("Asana Personal Access Token", password=True)
+
+    # If workspace/user not provided, try to auto-detect
+    if not asana_workspace or not asana_user:
+        console.print("\n[dim]Detecting Asana workspace and user...[/dim]")
+        try:
+            temp_client = AsanaClient(asana_token, "temp", "temp")
+            response = temp_client._make_request("GET", "users/me")
+            user_data = response.get('data', {})
+            detected_user = user_data.get('gid')
+            detected_user_name = user_data.get('name')
+
+            workspaces = user_data.get('workspaces', [])
+            if workspaces:
+                if len(workspaces) == 1:
+                    detected_workspace = workspaces[0]['gid']
+                    detected_workspace_name = workspaces[0]['name']
+                    console.print(f"[green]✓ Found user: {detected_user_name} ({detected_user})[/green]")
+                    console.print(f"[green]✓ Found workspace: {detected_workspace_name} ({detected_workspace})[/green]")
+                else:
+                    console.print(f"[green]✓ Found user: {detected_user_name} ({detected_user})[/green]")
+                    console.print("\n[yellow]Multiple workspaces found:[/yellow]")
+                    for i, ws in enumerate(workspaces, 1):
+                        console.print(f"  {i}. {ws['name']} ({ws['gid']})")
+                    if not yes:
+                        choice = Prompt.ask("Select workspace number", default="1")
+                        detected_workspace = workspaces[int(choice) - 1]['gid']
+                        detected_workspace_name = workspaces[int(choice) - 1]['name']
+                    else:
+                        detected_workspace = workspaces[0]['gid']
+                        detected_workspace_name = workspaces[0]['name']
+
+                if not asana_workspace:
+                    asana_workspace = detected_workspace
+                if not asana_user:
+                    asana_user = detected_user
+        except Exception as e:
+            console.print(f"[yellow]Could not auto-detect: {e}[/yellow]")
+
+    if not asana_workspace:
+        if yes:
+            console.print("[red]Error: --asana-workspace is required in non-interactive mode[/red]")
+            raise click.Abort()
+        asana_workspace = Prompt.ask("Asana Workspace GID")
+
+    if not asana_user:
+        if yes:
+            console.print("[red]Error: --asana-user is required in non-interactive mode[/red]")
+            raise click.Abort()
+        asana_user = Prompt.ask("Asana User GID")
+
+    if not asana_portfolio and not yes:
+        console.print("\n[dim]Portfolio filtering is optional. Leave empty to see all tasks.[/dim]")
+        asana_portfolio = Prompt.ask("Asana Portfolio GID (optional)", default="")
+        if not asana_portfolio:
+            asana_portfolio = None
+
+    # Validate Asana connection
+    console.print("\n[dim]Testing Asana connection...[/dim]")
+    asana_client = AsanaClient(asana_token, asana_workspace, asana_user, asana_portfolio)
+    asana_result = asana_client.test_connection()
+
+    if asana_result["success"]:
+        console.print(f"[green]✓ Asana connected as: {asana_result['user']}[/green]")
+        console.print(f"[green]✓ Workspace: {asana_result['workspace']}[/green]")
+        if asana_result["portfolio"]:
+            console.print(f"[green]✓ Portfolio: {asana_result['portfolio']}[/green]")
+    else:
+        console.print("[red]✗ Asana connection failed:[/red]")
+        for error in asana_result["errors"]:
+            console.print(f"[red]  - {error}[/red]")
+        if not yes:
+            if not Confirm.ask("Continue anyway?", default=False):
+                raise click.Abort()
+
+    # Build config
+    config_data = {
+        'notion': {
+            'token': notion_token,
+            'database_modules_id': notion_modules_db,
+            'database_features_id': notion_features_db
+        },
+        'asana': {
+            'access_token': asana_token,
+            'workspace_gid': asana_workspace,
+            'user_gid': asana_user
+        },
+        'ai': {
+            'context_max_length': 32000,
+            'include_code_examples': True
+        },
+        'git': {
+            'default_branch': 'main',
+            'header_comment_style': 'auto'
+        },
+        'logging': {
+            'level': 'INFO',
+            'file': 'notion-dev.log'
+        }
     }
-    
-    response = requests.post(url, headers=headers, json={})
-    results = response.json().get('results', [])
-    
-    console.print(f"[bold]Found {len(results)} features in Notion:[/bold]")
-    for page in results[:10]:  # Show first 10
-        props = page['properties']
-        # Try to get code from different property types
-        code = None
-        if 'code' in props:
-            if 'rich_text' in props['code'] and props['code']['rich_text']:
-                code = props['code']['rich_text'][0]['plain_text']
-            elif 'title' in props['code'] and props['code']['title']:
-                code = props['code']['title'][0]['plain_text']
-        
-        name = None
-        if 'name' in props:
-            if 'title' in props['name'] and props['name']['title']:
-                name = props['name']['title'][0]['plain_text']
-            elif 'rich_text' in props['name'] and props['name']['rich_text']:
-                name = props['name']['rich_text'][0]['plain_text']
-                
-        console.print(f"- Code: {code}, Name: {name}")
+
+    if asana_portfolio:
+        config_data['asana']['portfolio_gid'] = asana_portfolio
+
+    # Save config
+    config_dir.mkdir(parents=True, exist_ok=True)
+    with open(config_file, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+
+    # Set restrictive permissions (owner read/write only)
+    os.chmod(config_file, 0o600)
+
+    console.print(f"\n[green]✓ Configuration saved to {config_file}[/green]")
+    console.print("[dim]File permissions set to 600 (owner read/write only)[/dim]")
+    console.print("\n[bold green]Setup complete! You can now use notion-dev commands.[/bold green]")
+
+
+@cli.command()
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def status(ctx, output_json):
+    """Check connection status for Notion and Asana.
+
+    Validates that your authentication tokens are working and that
+    you have access to the configured databases/workspaces.
+    """
+    config_path = ctx.obj.get('config_path')
+    config_file = Path(config_path) if config_path else Path.home() / ".notion-dev" / "config.yml"
+
+    if not config_file.exists():
+        if output_json:
+            console.print(json.dumps({"error": "Configuration file not found", "hint": "Run 'notion-dev login' first"}))
+        else:
+            console.print("[red]❌ Configuration file not found[/red]")
+            console.print("[yellow]Run 'notion-dev login' to create your configuration[/yellow]")
+        return
+
+    try:
+        config = Config.load(config_path)
+    except Exception as e:
+        if output_json:
+            console.print(json.dumps({"error": f"Failed to load config: {e}"}))
+        else:
+            console.print(f"[red]❌ Failed to load configuration: {e}[/red]")
+        return
+
+    results = {
+        "config_file": str(config_file),
+        "notion": None,
+        "asana": None
+    }
+
+    # Test Notion
+    if not output_json:
+        console.print("\n[bold cyan]== Notion Status ==[/bold cyan]")
+    try:
+        notion_client = NotionClient(
+            config.notion.token,
+            config.notion.database_modules_id,
+            config.notion.database_features_id
+        )
+        notion_result = notion_client.test_connection()
+        results["notion"] = notion_result
+
+        if not output_json:
+            if notion_result["success"]:
+                console.print(f"[green]✓ Connected as: {notion_result['user']}[/green]")
+                console.print(f"[green]✓ Modules DB: {notion_result['modules_db']}[/green]")
+                console.print(f"[green]✓ Features DB: {notion_result['features_db']}[/green]")
+            else:
+                console.print("[red]✗ Connection failed:[/red]")
+                for error in notion_result["errors"]:
+                    console.print(f"[red]  - {error}[/red]")
+    except Exception as e:
+        results["notion"] = {"success": False, "errors": [str(e)]}
+        if not output_json:
+            console.print(f"[red]✗ Error: {e}[/red]")
+
+    # Test Asana
+    if not output_json:
+        console.print("\n[bold cyan]== Asana Status ==[/bold cyan]")
+    try:
+        asana_client = AsanaClient(
+            config.asana.access_token,
+            config.asana.workspace_gid,
+            config.asana.user_gid,
+            config.asana.portfolio_gid
+        )
+        asana_result = asana_client.test_connection()
+        results["asana"] = asana_result
+
+        if not output_json:
+            if asana_result["success"]:
+                console.print(f"[green]✓ Connected as: {asana_result['user']}[/green]")
+                console.print(f"[green]✓ Workspace: {asana_result['workspace']}[/green]")
+                if asana_result.get("portfolio"):
+                    console.print(f"[green]✓ Portfolio: {asana_result['portfolio']}[/green]")
+                else:
+                    console.print("[dim]  No portfolio configured[/dim]")
+            else:
+                console.print("[red]✗ Connection failed:[/red]")
+                for error in asana_result["errors"]:
+                    console.print(f"[red]  - {error}[/red]")
+    except Exception as e:
+        results["asana"] = {"success": False, "errors": [str(e)]}
+        if not output_json:
+            console.print(f"[red]✗ Error: {e}[/red]")
+
+    # Summary
+    all_ok = (results["notion"] and results["notion"].get("success", False) and
+              results["asana"] and results["asana"].get("success", False))
+
+    if output_json:
+        results["all_ok"] = all_ok
+        console.print(json.dumps(results, indent=2))
+    else:
+        console.print("\n" + "=" * 40)
+        if all_ok:
+            console.print("[bold green]✓ All connections OK[/bold green]")
+        else:
+            console.print("[bold red]✗ Some connections failed[/bold red]")
+            console.print("[yellow]Run 'notion-dev login' to reconfigure[/yellow]")
+
 
 @cli.command()
 @click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')

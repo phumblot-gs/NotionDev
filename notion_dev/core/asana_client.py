@@ -1,6 +1,6 @@
 # notion_dev/core/asana_client.py - Version avec support portfolio
 import requests
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from .models import AsanaTask, AsanaProject
 from datetime import datetime
 import logging
@@ -403,14 +403,67 @@ class AsanaClient:
             logger.error(f"Error updating task {task_gid}: {e}")
             return None
 
-    def test_connection(self) -> bool:
-        """Test de connexion simple"""
+    def test_connection(self) -> Dict[str, Any]:
+        """Test connection to Asana API and validate access.
+
+        Returns:
+            Dict with 'success', 'user', 'workspace', 'portfolio' keys
+        """
+        result = {
+            "success": False,
+            "user": None,
+            "user_gid": None,
+            "workspace": None,
+            "portfolio": None,
+            "errors": []
+        }
+
+        # Test 1: Verify token and get user info
         try:
             response = self._make_request("GET", "users/me")
             user_data = response.get('data', {})
-            logger.info(f"Connected to Asana as: {user_data.get('name', 'Unknown')}")
-            return True
+            result["user"] = user_data.get('name', 'Unknown')
+            result["user_gid"] = user_data.get('gid')
+            logger.info(f"Connected to Asana as: {result['user']}")
+        except requests.HTTPError as e:
+            if e.response.status_code == 401:
+                result["errors"].append("Invalid Asana token (401 Unauthorized)")
+            elif e.response.status_code == 403:
+                result["errors"].append("Asana token lacks required permissions (403 Forbidden)")
+            else:
+                result["errors"].append(f"Asana API error: {e}")
+            return result
         except Exception as e:
-            logger.error(f"Asana connection test failed: {e}")
-            return False
+            result["errors"].append(f"Connection error: {e}")
+            return result
+
+        # Test 2: Verify workspace access
+        try:
+            response = self._make_request("GET", f"workspaces/{self.workspace_gid}")
+            workspace_data = response.get('data', {})
+            result["workspace"] = workspace_data.get('name', 'Unknown')
+        except requests.HTTPError as e:
+            if e.response.status_code == 404:
+                result["errors"].append(f"Workspace {self.workspace_gid} not found")
+            else:
+                result["errors"].append(f"Workspace error: {e}")
+        except Exception as e:
+            result["errors"].append(f"Workspace error: {e}")
+
+        # Test 3: Verify portfolio access (if configured)
+        if self.portfolio_gid:
+            try:
+                response = self._make_request("GET", f"portfolios/{self.portfolio_gid}")
+                portfolio_data = response.get('data', {})
+                result["portfolio"] = portfolio_data.get('name', 'Unknown')
+            except requests.HTTPError as e:
+                if e.response.status_code == 404:
+                    result["errors"].append(f"Portfolio {self.portfolio_gid} not found")
+                else:
+                    result["errors"].append(f"Portfolio error: {e}")
+            except Exception as e:
+                result["errors"].append(f"Portfolio error: {e}")
+
+        result["success"] = len(result["errors"]) == 0
+        return result
 
