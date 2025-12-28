@@ -13,7 +13,7 @@ They can then comment on Asana tickets, tag their code with implemented features
 NotionDev works in a multi-project environment: you can have multiple git projects locally, you can work on distinct features in each project.
 
 [![PyPI version](https://badge.fury.io/py/notion-dev.svg)](https://pypi.org/project/notion-dev/)
-[![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://github.com/phumblot-gs/NotionDev/actions/workflows/tests.yml/badge.svg)](https://github.com/phumblot-gs/NotionDev/actions/workflows/tests.yml)
 
@@ -48,7 +48,7 @@ notion-dev work TASK-123456789
 
 ## 📋 Prerequisites
 
-- **Python 3.9+**
+- **Python 3.10+**
 - **macOS**
 - **API Access**: Notion + Asana
 - **Notion Structure**: "Modules" and "Features" databases with feature codes

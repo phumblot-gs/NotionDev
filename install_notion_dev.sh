@@ -41,17 +41,17 @@ echo "=================================================="
 # Vérification des prérequis
 print_status "Vérification des prérequis..."
 
-# Vérifier Python 3.9+
+# Vérifier Python 3.10+
 if ! command -v python3 &> /dev/null; then
     print_error "Python 3 n'est pas installé. Installez-le via Homebrew: brew install python"
     exit 1
 fi
 
 PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-REQUIRED_VERSION="3.9"
+REQUIRED_VERSION="3.10"
 
 if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
-    print_error "Python 3.9+ requis. Version actuelle: $PYTHON_VERSION"
+    print_error "Python 3.10+ requis. Version actuelle: $PYTHON_VERSION"
     exit 1
 fi
 
@@ -373,13 +373,14 @@ setup(
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
-        "Intended Audience :: Developers", 
+        "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     install_requires=[
         "asana>=3.2.0",
         "notion-client>=2.2.1", 
