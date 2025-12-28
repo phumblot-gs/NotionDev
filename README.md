@@ -65,19 +65,25 @@ For NotionDev to work, your Notion workspace must contain 2 databases with the a
 - `code_prefix` (Text): Feature code prefix (AU, DA, API...)
 
 **"Features" Database:**
-- `code` (Text): Unique code (AU01, DA02...)
-- `name` (Title): Feature name
-- `status` (Select): draft, review, validated, obsolete
-- `module` (Relation): Link to parent module
-- `plan` (Multi-select): Subscription plans  
-- `user_rights` (Multi-select): Access rights
+- `code` (Text): Unique code (AU01, DA02...) - **required**
+- `name` (Title): Feature name - **required**
+- `status` (Select): draft, review, validated, obsolete - **required**
+- `module` (Relation): Link to parent module - **required**
+- `plan` (Multi-select): Subscription plans - *optional*
+- `user_rights` (Multi-select): Access rights - *optional*
 
 ## 🚀 Installation
 
-### Install from PyPI (Recommended)
+### Install from PyPI
 
+**CLI only:**
 ```bash
 pip install notion-dev
+```
+
+**CLI + MCP Server** (for Claude Code, Cursor, etc.):
+```bash
+pip install 'notion-dev[mcp]'
 ```
 
 ### Install from Source
@@ -156,12 +162,60 @@ asana:
 #### 3. Test Installation
 
 ```bash
-# Complete configuration test
-~/notion-dev-install/test_config.sh
-
 # First test
+notion-dev status
 notion-dev tickets
 ```
+
+### MCP Server Configuration
+
+If you installed with MCP support (`pip install 'notion-dev[mcp]'`), you can use NotionDev as an MCP server in AI coding assistants.
+
+#### Claude Code
+
+Add to your Claude Code MCP settings (`~/.claude/claude_desktop_config.json` or via Claude Code settings):
+
+```json
+{
+  "mcpServers": {
+    "notiondev": {
+      "command": "notion-dev-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+#### Cursor
+
+Add to your Cursor MCP settings (`.cursor/mcp.json` in your project or global settings):
+
+```json
+{
+  "mcpServers": {
+    "notiondev": {
+      "command": "notion-dev-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+#### Available MCP Tools
+
+Once configured, the following tools are available in your AI assistant:
+
+| Tool | Description |
+|------|-------------|
+| `notiondev_list_tickets` | List your Asana tickets |
+| `notiondev_work_on_ticket` | Start working on a ticket (loads context to AGENTS.md) |
+| `notiondev_add_comment` | Add a comment to current ticket |
+| `notiondev_mark_done` | Mark ticket as done and reassign to creator |
+| `notiondev_get_info` | Get current project info |
+| `notiondev_list_modules` | List Notion modules |
+| `notiondev_get_module` | Get module details |
+| `notiondev_list_features` | List features |
+| `notiondev_get_feature` | Get feature details |
 
 ## 📖 Usage
 
