@@ -498,6 +498,43 @@ async def notiondev_mark_done() -> str:
 
 
 # =============================================================================
+# MCP Tools - Asana Projects
+# =============================================================================
+
+@mcp.tool()
+async def notiondev_list_projects() -> str:
+    """List available Asana projects from the configured portfolio.
+
+    Use this to find the correct project_gid when creating tickets.
+
+    Returns:
+        JSON array of projects with their IDs and names
+    """
+    asana = get_asana_client()
+    if not asana:
+        return json.dumps({"error": "Failed to initialize Asana client"})
+
+    try:
+        projects = asana.get_portfolio_projects()
+        if not projects:
+            return json.dumps({
+                "warning": "No projects found in portfolio",
+                "hint": "Make sure portfolio_gid is configured correctly"
+            })
+
+        return json.dumps([
+            {
+                "id": p.gid,
+                "name": p.name,
+                "color": p.color
+            }
+            for p in projects
+        ], indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# =============================================================================
 # MCP Tools - Ticket Creation & Update
 # =============================================================================
 

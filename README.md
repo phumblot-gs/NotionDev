@@ -212,10 +212,17 @@ Once configured, the following tools are available in your AI assistant:
 | `notiondev_add_comment` | Add a comment to current ticket |
 | `notiondev_mark_done` | Mark ticket as done and reassign to creator |
 | `notiondev_get_info` | Get current project info |
+| `notiondev_list_projects` | List Asana projects in portfolio |
+| `notiondev_create_ticket` | Create a new Asana ticket |
+| `notiondev_update_ticket` | Update an existing Asana ticket |
 | `notiondev_list_modules` | List Notion modules |
 | `notiondev_get_module` | Get module details |
 | `notiondev_list_features` | List features |
 | `notiondev_get_feature` | Get feature details |
+| `notiondev_create_module` | Create a new module in Notion |
+| `notiondev_create_feature` | Create a new feature in Notion |
+| `notiondev_update_module_content` | Update module documentation |
+| `notiondev_update_feature_content` | Update feature documentation |
 
 ## 📖 Usage
 
