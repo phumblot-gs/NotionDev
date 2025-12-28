@@ -57,7 +57,7 @@ class NotionClient:
             result["modules_db"] = response.get("title", [{}])[0].get("plain_text", "Modules DB")
         except requests.HTTPError as e:
             if e.response.status_code == 404:
-                result["errors"].append(f"Modules database not found or not shared with integration")
+                result["errors"].append("Modules database not found or not shared with integration")
             else:
                 result["errors"].append(f"Modules database error: {e}")
         except Exception as e:
@@ -70,7 +70,7 @@ class NotionClient:
             result["features_db"] = response.get("title", [{}])[0].get("plain_text", "Features DB")
         except requests.HTTPError as e:
             if e.response.status_code == 404:
-                result["errors"].append(f"Features database not found or not shared with integration")
+                result["errors"].append("Features database not found or not shared with integration")
             else:
                 result["errors"].append(f"Features database error: {e}")
         except Exception as e:
