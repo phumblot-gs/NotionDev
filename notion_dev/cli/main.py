@@ -772,13 +772,15 @@ def tickets(ctx, output_json):
 @cli.command()
 @click.argument('task_id')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts (for non-interactive use)')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
 @click.pass_context
-def work(ctx, task_id, yes):
+def work(ctx, task_id, yes, output_json):
     """Démarre le travail sur un ticket spécifique
 
     Examples:
         notion-dev work 1234567890  # Interactive mode with confirmation
         notion-dev work 1234567890 --yes  # Non-interactive mode (for scripts/MCP)
+        notion-dev work 1234567890 --yes --json  # JSON output for MCP
     """
     config = ctx.obj['config']
     project_info = config.get_project_info()
@@ -798,102 +800,161 @@ def work(ctx, task_id, yes):
     )
     
     context_builder = ContextBuilder(notion_client, config)
-    
-    with console.status("[bold green]Chargement du ticket..."):
+
+    # Load task
+    if not output_json:
+        with console.status("[bold green]Chargement du ticket..."):
+            task = asana_client.get_task(task_id)
+    else:
         task = asana_client.get_task(task_id)
-    
+
     if not task:
-        console.print(f"[red]❌ Ticket {task_id} non trouvé[/red]")
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": f"Ticket {task_id} not found"}, indent=2))
+        else:
+            console.print(f"[red]❌ Ticket {task_id} non trouvé[/red]")
         return
-    
+
     # Check if we're switching from another task
     cache_dir = project_info['path'] + "/.notion-dev"
     current_task_file = f"{cache_dir}/current_task.txt"
-    
+
     # Ensure cache directory exists
     import os
     os.makedirs(cache_dir, exist_ok=True)
-    
+
     previous_task_id = None
     if os.path.exists(current_task_file):
         with open(current_task_file, 'r') as f:
             previous_task_id = f.read().strip()
-    
+
     # If switching to a different task, add transition comment to previous task
     if previous_task_id and previous_task_id != task_id:
-        with console.status(f"[bold yellow]Vérification du ticket précédent {previous_task_id[-8:]}..."):
+        if not output_json:
+            with console.status(f"[bold yellow]Vérification du ticket précédent {previous_task_id[-8:]}..."):
+                previous_task = asana_client.get_task(previous_task_id)
+        else:
             previous_task = asana_client.get_task(previous_task_id)
-        
+
         if previous_task and not previous_task.completed:
-            with console.status("[bold yellow]Ajout du commentaire de transition..."):
-                success = asana_client.add_comment_to_task(previous_task_id, "moves on to another task, stay tuned")
+            if not output_json:
+                with console.status("[bold yellow]Ajout du commentaire de transition..."):
+                    success = asana_client.add_comment_to_task(previous_task_id, "moves on to another task, stay tuned")
                 if success:
                     console.print(f"[dim]✅ Commentaire de transition ajouté au ticket {previous_task_id[-8:]}[/dim]")
                 else:
                     console.print("[dim]⚠️ Impossible d'ajouter le commentaire de transition[/dim]")
-    
+            else:
+                asana_client.add_comment_to_task(previous_task_id, "moves on to another task, stay tuned")
+
     # Add comment to indicate working on the new task
-    with console.status("[bold green]Ajout du commentaire 'is working on it'..."):
-        success = asana_client.add_comment_to_task(task_id, "is working on it")
-        if success:
+    comment_added = False
+    if not output_json:
+        with console.status("[bold green]Ajout du commentaire 'is working on it'..."):
+            comment_added = asana_client.add_comment_to_task(task_id, "is working on it")
+        if comment_added:
             console.print("[dim]✅ Commentaire ajouté au ticket Asana[/dim]")
         else:
             console.print("[dim]⚠️ Impossible d'ajouter le commentaire[/dim]")
-    
+    else:
+        comment_added = asana_client.add_comment_to_task(task_id, "is working on it")
+
     # Update current task cache
     with open(current_task_file, 'w') as f:
         f.write(task_id)
-    
-    # Affichage des infos du ticket + projet
-    panel = Panel(
-        f"[bold]{task.name}[/bold]\n\n"
-        f"ID: {task.gid}\n"
-        f"Feature Code: {task.feature_code or 'Non défini'}\n"
-        f"Projet Asana: {task.project_name or 'Non défini'}\n"
-        f"Statut: {'✅ Terminé' if task.completed else '🔄 En cours'}\n\n"
-        f"[dim]Projet local: {project_info['name']}[/dim]",
-        title="📋 Ticket Asana"
-    )
-    console.print(panel)
-    
-    if not task.feature_code:
-        console.print("[red]❌ Ce ticket n'a pas de code feature défini[/red]")
-        console.print("[yellow]💡 Ajoutez 'Feature Code: XX01' dans la description Asana[/yellow]")
-        return
-    
-    # Génération du contexte
-    with console.status("[bold green]Génération du contexte IA..."):
-        context = context_builder.build_task_context(task)
-    
-    if not context:
-        console.print(f"[red]❌ Impossible de charger la feature {task.feature_code}[/red]")
-        return
-    
-    # Affichage du contexte feature
-    feature = context['feature']
-    feature_panel = Panel(
-        f"[bold green]{feature.code} - {feature.name}[/bold green]\n\n"
-        f"Module: {feature.module_name}\n"
-        f"Status: {feature.status}\n"
-        f"Plans: {', '.join(feature.plan) if isinstance(feature.plan, list) else (feature.plan or 'N/A')}\n"
-        f"User Rights: {', '.join(feature.user_rights) if isinstance(feature.user_rights, list) else (feature.user_rights or 'N/A')}",
-        title="🎯 Feature"
-    )
-    console.print(feature_panel)
-    
-    # Export vers AGENTS.md (forcé à la racine du projet)
-    # Skip confirmation if --yes flag is set
-    if yes or Confirm.ask("Exporter le contexte vers AGENTS.md?", default=True):
-        with console.status("[bold green]Export vers AGENTS.md..."):
-            # Force export to project root, not current directory
-            success = context_builder.export_to_agents_md(context, project_info['path'])
 
-        if success:
-            console.print(f"[green]✅ Contexte exporté vers {project_info['path']}/AGENTS.md[/green]")
-            console.print("[yellow]💡 Vous pouvez maintenant ouvrir votre éditeur AI et commencer à coder![/yellow]")
-            console.print("[dim]Le fichier .cursorrules sera automatiquement chargé par Cursor[/dim]")
+    if not output_json:
+        # Affichage des infos du ticket + projet
+        panel = Panel(
+            f"[bold]{task.name}[/bold]\n\n"
+            f"ID: {task.gid}\n"
+            f"Feature Code: {task.feature_code or 'Non défini'}\n"
+            f"Projet Asana: {task.project_name or 'Non défini'}\n"
+            f"Statut: {'✅ Terminé' if task.completed else '🔄 En cours'}\n\n"
+            f"[dim]Projet local: {project_info['name']}[/dim]",
+            title="📋 Ticket Asana"
+        )
+        console.print(panel)
+
+    if not task.feature_code:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({
+                "error": "No feature code defined for this ticket",
+                "hint": "Add 'Feature Code: XX01' in the Asana description"
+            }, indent=2))
         else:
-            console.print("[red]❌ Erreur lors de l'export[/red]")
+            console.print("[red]❌ Ce ticket n'a pas de code feature défini[/red]")
+            console.print("[yellow]💡 Ajoutez 'Feature Code: XX01' dans la description Asana[/yellow]")
+        return
+
+    # Génération du contexte
+    if not output_json:
+        with console.status("[bold green]Génération du contexte IA..."):
+            context = context_builder.build_task_context(task)
+    else:
+        context = context_builder.build_task_context(task)
+
+    if not context:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": f"Unable to load feature {task.feature_code}"}, indent=2))
+        else:
+            console.print(f"[red]❌ Impossible de charger la feature {task.feature_code}[/red]")
+        return
+
+    feature = context['feature']
+
+    if not output_json:
+        # Affichage du contexte feature
+        feature_panel = Panel(
+            f"[bold green]{feature.code} - {feature.name}[/bold green]\n\n"
+            f"Module: {feature.module_name}\n"
+            f"Status: {feature.status}\n"
+            f"Plans: {', '.join(feature.plan) if isinstance(feature.plan, list) else (feature.plan or 'N/A')}\n"
+            f"User Rights: {', '.join(feature.user_rights) if isinstance(feature.user_rights, list) else (feature.user_rights or 'N/A')}",
+            title="🎯 Feature"
+        )
+        console.print(feature_panel)
+
+    # Export vers AGENTS.md (forcé à la racine du projet)
+    export_success = False
+    if yes or output_json or Confirm.ask("Exporter le contexte vers AGENTS.md?", default=True):
+        if not output_json:
+            with console.status("[bold green]Export vers AGENTS.md..."):
+                export_success = context_builder.export_to_agents_md(context, project_info['path'])
+        else:
+            export_success = context_builder.export_to_agents_md(context, project_info['path'])
+
+        if not output_json:
+            if export_success:
+                console.print(f"[green]✅ Contexte exporté vers {project_info['path']}/AGENTS.md[/green]")
+                console.print("[yellow]💡 Vous pouvez maintenant ouvrir votre éditeur AI et commencer à coder![/yellow]")
+                console.print("[dim]Le fichier .cursorrules sera automatiquement chargé par Cursor[/dim]")
+            else:
+                console.print("[red]❌ Erreur lors de l'export[/red]")
+
+    # JSON output
+    if output_json:
+        import json as json_module
+        print(json_module.dumps({
+            "success": True,
+            "ticket": {
+                "id": task.gid,
+                "name": task.name,
+                "feature_code": task.feature_code,
+                "status": "completed" if task.completed else "in_progress",
+                "project": task.project_name or "Non défini"
+            },
+            "feature": f"{task.feature_code} - Feature loaded",
+            "actions": {
+                "comment_added": comment_added,
+                "context_exported": export_success,
+                "export_path": f"{project_info['path']}/AGENTS.md"
+            },
+            "message": f"Vous travaillez maintenant sur: {task.name}"
+        }, indent=2, ensure_ascii=False))
 
 @cli.command()
 @click.argument('message')
@@ -1062,9 +1123,10 @@ def context(ctx, feature, yes):
 @click.option('--feature', '-f', default='', help='Feature code (e.g., CC01)')
 @click.option('--notes', default='', help='Ticket description')
 @click.option('--due', default='', help='Due date (YYYY-MM-DD)')
+@click.option('--project', '-p', default='', help='Asana project GID (uses first portfolio project if not specified)')
 @click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
 @click.pass_context
-def create_ticket(ctx, name, feature, notes, due, output_json):
+def create_ticket(ctx, name, feature, notes, due, project, output_json):
     """Create a new Asana ticket"""
     config = ctx.obj['config']
 
@@ -1086,12 +1148,14 @@ def create_ticket(ctx, name, feature, notes, due, output_json):
             task = asana_client.create_task(
                 name=name,
                 notes=full_notes,
+                project_gid=project if project else None,
                 due_on=due if due else None
             )
     else:
         task = asana_client.create_task(
             name=name,
             notes=full_notes,
+            project_gid=project if project else None,
             due_on=due if due else None
         )
 
@@ -1196,6 +1260,523 @@ def update_ticket(ctx, task_id, name, notes, append, due, assignee, output_json)
             print(json_module.dumps({"error": f"Failed to update ticket {task_id}"}, indent=2))
         else:
             console.print(f"[red]❌ Erreur lors de la mise à jour du ticket {task_id}[/red]")
+
+
+# =============================================================================
+# Notion Commands - Modules
+# =============================================================================
+
+@cli.command('modules')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def list_modules(ctx, output_json):
+    """List all modules from Notion database"""
+    config = ctx.obj['config']
+
+    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id)
+
+    if not output_json:
+        with console.status("[bold green]Fetching modules..."):
+            modules = notion_client.get_all_modules()
+    else:
+        modules = notion_client.get_all_modules()
+
+    if output_json:
+        import json as json_module
+        modules_data = [{
+            "code_prefix": m.code_prefix,
+            "name": m.name,
+            "description": m.description,
+            "application": m.application,
+            "status": m.status,
+            "notion_id": m.notion_id
+        } for m in modules]
+        print(json_module.dumps({"modules": modules_data}, indent=2, ensure_ascii=False))
+    else:
+        if not modules:
+            console.print("[yellow]No modules found[/yellow]")
+            return
+
+        table = Table(title="Modules Notion")
+        table.add_column("Code", style="cyan", no_wrap=True)
+        table.add_column("Name", style="bold")
+        table.add_column("Application", style="green")
+        table.add_column("Status", style="magenta")
+
+        for module in modules:
+            table.add_row(
+                module.code_prefix,
+                module.name,
+                module.application or "-",
+                module.status or "-"
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]{len(modules)} module(s) found[/dim]")
+
+
+@cli.command('module')
+@click.argument('code_prefix')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def get_module(ctx, code_prefix, output_json):
+    """Get detailed information about a module"""
+    config = ctx.obj['config']
+
+    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id)
+
+    if not output_json:
+        with console.status(f"[bold green]Fetching module {code_prefix}..."):
+            module = notion_client.get_module_by_prefix(code_prefix.upper())
+    else:
+        module = notion_client.get_module_by_prefix(code_prefix.upper())
+
+    if not module:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": f"Module '{code_prefix}' not found"}, indent=2))
+        else:
+            console.print(f"[red]❌ Module '{code_prefix}' not found[/red]")
+        return
+
+    if output_json:
+        import json as json_module
+        module_data = {
+            "code_prefix": module.code_prefix,
+            "name": module.name,
+            "description": module.description,
+            "application": module.application,
+            "status": module.status,
+            "notion_id": module.notion_id,
+            "content": module.content,
+            "repository_url": module.repository_url,
+            "branch": module.branch,
+            "code_path": module.code_path
+        }
+        print(json_module.dumps({"module": module_data}, indent=2, ensure_ascii=False))
+    else:
+        panel = Panel(
+            f"[bold]Name:[/bold] {module.name}\n"
+            f"[bold]Code:[/bold] {module.code_prefix}\n"
+            f"[bold]Application:[/bold] {module.application or '-'}\n"
+            f"[bold]Status:[/bold] {module.status or '-'}\n"
+            f"[bold]Description:[/bold] {module.description or '-'}",
+            title=f"Module {module.code_prefix}"
+        )
+        console.print(panel)
+
+        if module.content:
+            console.print("\n[bold]Content:[/bold]")
+            console.print(module.content[:2000] + ("..." if len(module.content) > 2000 else ""))
+
+
+# =============================================================================
+# Notion Commands - Features
+# =============================================================================
+
+@cli.command('features')
+@click.option('--module', '-m', 'module_prefix', default='', help='Filter by module prefix (e.g., CC, API)')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def list_features(ctx, module_prefix, output_json):
+    """List all features from Notion database"""
+    config = ctx.obj['config']
+
+    notion_client = NotionClient(
+        config.notion.token,
+        config.notion.database_modules_id,
+        config.notion.database_features_id
+    )
+
+    if not output_json:
+        with console.status("[bold green]Fetching features..."):
+            features = notion_client.get_all_features()
+    else:
+        features = notion_client.get_all_features()
+
+    # Filter by module if specified
+    if module_prefix:
+        features = [f for f in features if f.code.upper().startswith(module_prefix.upper())]
+
+    if output_json:
+        import json as json_module
+        features_data = [{
+            "code": f.code,
+            "name": f.name,
+            "module_name": f.module_name,
+            "status": f.status,
+            "plan": f.plan,
+            "user_rights": f.user_rights,
+            "notion_id": f.notion_id
+        } for f in features]
+        print(json_module.dumps({"features": features_data}, indent=2, ensure_ascii=False))
+    else:
+        if not features:
+            console.print("[yellow]No features found[/yellow]")
+            return
+
+        table = Table(title="Features Notion")
+        table.add_column("Code", style="cyan", no_wrap=True)
+        table.add_column("Name", style="bold")
+        table.add_column("Module", style="green")
+        table.add_column("Status", style="magenta")
+
+        for feature in features:
+            table.add_row(
+                feature.code,
+                feature.name,
+                feature.module_name or "-",
+                feature.status or "-"
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]{len(features)} feature(s) found[/dim]")
+
+
+@cli.command('feature')
+@click.argument('code')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def get_feature(ctx, code, output_json):
+    """Get detailed information about a feature"""
+    config = ctx.obj['config']
+
+    notion_client = NotionClient(
+        config.notion.token,
+        config.notion.database_modules_id,
+        config.notion.database_features_id
+    )
+
+    if not output_json:
+        with console.status(f"[bold green]Fetching feature {code}..."):
+            feature = notion_client.get_feature_by_code(code.upper())
+    else:
+        feature = notion_client.get_feature_by_code(code.upper())
+
+    if not feature:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": f"Feature '{code}' not found"}, indent=2))
+        else:
+            console.print(f"[red]❌ Feature '{code}' not found[/red]")
+        return
+
+    # Get module info (content + repository info)
+    module_content = None
+    module_repository_url = None
+    module_branch = None
+    module_code_path = None
+    if feature.module_name:
+        module = notion_client.get_module_by_prefix(feature.code[:2].upper())
+        if module:
+            module_content = module.content
+            module_repository_url = module.repository_url
+            module_branch = module.branch
+            module_code_path = module.code_path
+
+    if output_json:
+        import json as json_module
+        feature_data = {
+            "code": feature.code,
+            "name": feature.name,
+            "module_name": feature.module_name,
+            "status": feature.status,
+            "plan": feature.plan,
+            "user_rights": feature.user_rights,
+            "notion_id": feature.notion_id,
+            "content": feature.content,
+            "module_content": module_content,
+            "module_repository_url": module_repository_url,
+            "module_branch": module_branch,
+            "module_code_path": module_code_path
+        }
+        print(json_module.dumps({"feature": feature_data}, indent=2, ensure_ascii=False))
+    else:
+        panel = Panel(
+            f"[bold]Name:[/bold] {feature.name}\n"
+            f"[bold]Code:[/bold] {feature.code}\n"
+            f"[bold]Module:[/bold] {feature.module_name or '-'}\n"
+            f"[bold]Status:[/bold] {feature.status or '-'}\n"
+            f"[bold]Plan:[/bold] {', '.join(feature.plan) if feature.plan else '-'}\n"
+            f"[bold]User Rights:[/bold] {', '.join(feature.user_rights) if feature.user_rights else '-'}",
+            title=f"Feature {feature.code}"
+        )
+        console.print(panel)
+
+        if feature.content:
+            console.print("\n[bold]Content:[/bold]")
+            console.print(feature.content[:3000] + ("..." if len(feature.content) > 3000 else ""))
+
+
+# =============================================================================
+# Asana Commands - Projects
+# =============================================================================
+
+@cli.command('projects')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def list_projects(ctx, output_json):
+    """List Asana projects from portfolio"""
+    config = ctx.obj['config']
+
+    asana_client = AsanaClient(
+        config.asana.access_token,
+        config.asana.workspace_gid,
+        config.asana.user_gid,
+        config.asana.portfolio_gid
+    )
+
+    if not output_json:
+        with console.status("[bold green]Fetching projects..."):
+            projects = asana_client.get_portfolio_projects()
+    else:
+        projects = asana_client.get_portfolio_projects()
+
+    if output_json:
+        import json as json_module
+        projects_data = [{
+            "gid": p.gid,
+            "name": p.name,
+            "color": p.color
+        } for p in projects]
+        print(json_module.dumps({"projects": projects_data}, indent=2, ensure_ascii=False))
+    else:
+        if not projects:
+            console.print("[yellow]No projects found in portfolio[/yellow]")
+            return
+
+        table = Table(title="Asana Projects")
+        table.add_column("GID", style="cyan", no_wrap=True)
+        table.add_column("Name", style="bold")
+        table.add_column("Color", style="green")
+
+        for project in projects:
+            table.add_row(
+                project.gid,
+                project.name,
+                project.color or "-"
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]{len(projects)} project(s) found[/dim]")
+
+
+# =============================================================================
+# Notion Commands - Create/Update Modules
+# =============================================================================
+
+@cli.command('create-module')
+@click.option('--name', '-n', required=True, help='Module name')
+@click.option('--prefix', '-p', required=True, help='Code prefix (2-3 chars, e.g., CC, API)')
+@click.option('--description', '-d', required=True, help='Short description')
+@click.option('--application', '-a', default='Backend', type=click.Choice(['Backend', 'Frontend', 'Service']), help='Application type')
+@click.option('--content', default='', help='Full documentation content in markdown')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def create_module(ctx, name, prefix, description, application, content, output_json):
+    """Create a new module in Notion"""
+    config = ctx.obj['config']
+
+    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id)
+
+    if not output_json:
+        with console.status("[bold green]Creating module..."):
+            module = notion_client.create_module(
+                name=name,
+                code_prefix=prefix.upper(),
+                description=description,
+                application=application,
+                content_markdown=content
+            )
+    else:
+        module = notion_client.create_module(
+            name=name,
+            code_prefix=prefix.upper(),
+            description=description,
+            application=application,
+            content_markdown=content
+        )
+
+    if module:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({
+                "success": True,
+                "message": f"Module '{name}' created successfully",
+                "module": {
+                    "code_prefix": module.code_prefix,
+                    "name": module.name,
+                    "application": module.application,
+                    "status": module.status,
+                    "notion_id": module.notion_id
+                }
+            }, indent=2, ensure_ascii=False))
+        else:
+            console.print(f"[green]✅ Module '{name}' created successfully![/green]")
+            console.print(f"[bold]Code:[/bold] {module.code_prefix}")
+            console.print(f"[bold]Notion ID:[/bold] {module.notion_id}")
+    else:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": "Failed to create module"}, indent=2))
+        else:
+            console.print("[red]❌ Error creating module[/red]")
+
+
+@cli.command('create-feature')
+@click.option('--name', '-n', required=True, help='Feature name')
+@click.option('--module', '-m', required=True, help='Parent module prefix (e.g., CC, API)')
+@click.option('--content', default='', help='Documentation content in markdown')
+@click.option('--plan', default='', help='Comma-separated plans (e.g., free,premium)')
+@click.option('--rights', default='', help='Comma-separated user rights (e.g., admin,user)')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def create_feature(ctx, name, module, content, plan, rights, output_json):
+    """Create a new feature in Notion"""
+    config = ctx.obj['config']
+
+    notion_client = NotionClient(
+        config.notion.token,
+        config.notion.database_modules_id,
+        config.notion.database_features_id
+    )
+
+    # Parse plan and rights
+    plan_list = [p.strip() for p in plan.split(',') if p.strip()] if plan else []
+    rights_list = [r.strip() for r in rights.split(',') if r.strip()] if rights else []
+
+    if not output_json:
+        with console.status("[bold green]Creating feature..."):
+            feature = notion_client.create_feature(
+                name=name,
+                module_prefix=module.upper(),
+                content_markdown=content,
+                plan=plan_list,
+                user_rights=rights_list
+            )
+    else:
+        feature = notion_client.create_feature(
+            name=name,
+            module_prefix=module.upper(),
+            content_markdown=content,
+            plan=plan_list,
+            user_rights=rights_list
+        )
+
+    if feature:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({
+                "success": True,
+                "message": f"Feature '{feature.code} - {name}' created successfully",
+                "feature": {
+                    "code": feature.code,
+                    "name": feature.name,
+                    "module": feature.module_name,
+                    "status": feature.status,
+                    "notion_id": feature.notion_id
+                }
+            }, indent=2, ensure_ascii=False))
+        else:
+            console.print(f"[green]✅ Feature '{feature.code} - {name}' created successfully![/green]")
+            console.print(f"[bold]Code:[/bold] {feature.code}")
+            console.print(f"[bold]Notion ID:[/bold] {feature.notion_id}")
+    else:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": "Failed to create feature"}, indent=2))
+        else:
+            console.print("[red]❌ Error creating feature[/red]")
+
+
+@cli.command('update-module')
+@click.argument('code_prefix')
+@click.option('--content', '-c', required=True, help='New content in markdown')
+@click.option('--append', is_flag=True, help='Append to existing content instead of replacing')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def update_module(ctx, code_prefix, content, append, output_json):
+    """Update a module's documentation content"""
+    config = ctx.obj['config']
+
+    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id)
+
+    if not output_json:
+        with console.status(f"[bold green]Updating module {code_prefix}..."):
+            success = notion_client.update_module_content(
+                code_prefix=code_prefix.upper(),
+                content_markdown=content,
+                replace=not append
+            )
+    else:
+        success = notion_client.update_module_content(
+            code_prefix=code_prefix.upper(),
+            content_markdown=content,
+            replace=not append
+        )
+
+    if success:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({
+                "success": True,
+                "message": f"Module '{code_prefix}' updated successfully"
+            }, indent=2, ensure_ascii=False))
+        else:
+            console.print(f"[green]✅ Module '{code_prefix}' updated successfully![/green]")
+    else:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": f"Failed to update module '{code_prefix}'"}, indent=2))
+        else:
+            console.print(f"[red]❌ Error updating module '{code_prefix}'[/red]")
+
+
+@cli.command('update-feature')
+@click.argument('code')
+@click.option('--content', '-c', required=True, help='New content in markdown')
+@click.option('--append', is_flag=True, help='Append to existing content instead of replacing')
+@click.option('--json', 'output_json', is_flag=True, help='Output in JSON format')
+@click.pass_context
+def update_feature(ctx, code, content, append, output_json):
+    """Update a feature's documentation content"""
+    config = ctx.obj['config']
+
+    notion_client = NotionClient(
+        config.notion.token,
+        config.notion.database_modules_id,
+        config.notion.database_features_id
+    )
+
+    if not output_json:
+        with console.status(f"[bold green]Updating feature {code}..."):
+            success = notion_client.update_feature_content(
+                code=code.upper(),
+                content_markdown=content,
+                replace=not append
+            )
+    else:
+        success = notion_client.update_feature_content(
+            code=code.upper(),
+            content_markdown=content,
+            replace=not append
+        )
+
+    if success:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({
+                "success": True,
+                "message": f"Feature '{code}' updated successfully"
+            }, indent=2, ensure_ascii=False))
+        else:
+            console.print(f"[green]✅ Feature '{code}' updated successfully![/green]")
+    else:
+        if output_json:
+            import json as json_module
+            print(json_module.dumps({"error": f"Failed to update feature '{code}'"}, indent=2))
+        else:
+            console.print(f"[red]❌ Error updating feature '{code}'[/red]")
 
 
 @cli.command()

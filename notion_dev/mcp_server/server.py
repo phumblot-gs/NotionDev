@@ -152,39 +152,52 @@ def run_notion_dev_command(args: List[str], timeout: int = 60) -> Dict[str, Any]
         }
 
 
-def get_notion_client():
-    """Get a configured NotionClient instance."""
+def run_cli_command(args: List[str], timeout: int = 60) -> dict:
+    """Execute a notion-dev CLI command and return parsed JSON output.
+
+    Args:
+        args: List of command arguments (without 'notion-dev' prefix)
+        timeout: Command timeout in seconds
+
+    Returns:
+        Parsed JSON output from the CLI command
+    """
     try:
-        from ..core.config import Config
-        from ..core.notion_client import NotionClient
+        # Always add --json flag for machine-readable output
+        full_args = ["notion-dev"] + args
+        if "--json" not in args:
+            full_args.append("--json")
 
-        config = Config.load()
-        return NotionClient(
-            config.notion.token,
-            config.notion.database_modules_id,
-            config.notion.database_features_id
+        logger.info(f"Running CLI command: {' '.join(full_args)}")
+
+        result = subprocess.run(
+            full_args,
+            capture_output=True,
+            text=True,
+            timeout=timeout
         )
+
+        if result.returncode != 0:
+            logger.error(f"CLI command failed: {result.stderr}")
+            # Try to parse error from stdout first (some commands output JSON errors)
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return {"error": result.stderr or f"Command failed with code {result.returncode}"}
+
+        # Parse JSON output
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse CLI output: {e}")
+            logger.error(f"Raw output: {result.stdout}")
+            return {"error": f"Failed to parse CLI output: {str(e)}", "raw_output": result.stdout}
+
+    except subprocess.TimeoutExpired:
+        return {"error": f"Command timed out after {timeout} seconds"}
     except Exception as e:
-        logger.error(f"Failed to initialize NotionClient: {e}")
-        return None
-
-
-def get_asana_client():
-    """Get a configured AsanaClient instance."""
-    try:
-        from ..core.config import Config
-        from ..core.asana_client import AsanaClient
-
-        config = Config.load()
-        return AsanaClient(
-            config.asana.access_token,
-            config.asana.workspace_gid,
-            config.asana.user_gid,
-            config.asana.portfolio_gid
-        )
-    except Exception as e:
-        logger.error(f"Failed to initialize AsanaClient: {e}")
-        return None
+        logger.error(f"Error running CLI command: {e}")
+        return {"error": str(e)}
 
 
 def get_github_client():
@@ -400,73 +413,9 @@ async def notiondev_work_on_ticket(task_id: str, ctx: Context = None) -> str:
     Returns:
         Status message with ticket and feature information
     """
-    # Use CLI command with --yes to avoid interactive prompts and timeout issues
-    # This is more reliable than calling APIs directly in async context
-    result = run_notion_dev_command(["work", task_id, "--yes"], timeout=120)
-
-    if result["success"]:
-        # CLI succeeded - parse output and build structured response
-        try:
-            # Get task details for the response
-            from ..core.config import Config
-            from ..core.asana_client import AsanaClient
-
-            config = Config.load()
-            project_info = config.get_project_info()
-
-            asana_client = AsanaClient(
-                config.asana.access_token,
-                config.asana.workspace_gid,
-                config.asana.user_gid,
-                config.asana.portfolio_gid
-            )
-
-            task = asana_client.get_task(task_id)
-            if task:
-                feature_info = "Aucun code feature défini"
-                if task.feature_code:
-                    feature_info = f"{task.feature_code} - Feature loaded"
-
-                return json.dumps({
-                    "success": True,
-                    "ticket": {
-                        "id": task.gid,
-                        "name": task.name,
-                        "feature_code": task.feature_code,
-                        "status": "completed" if task.completed else "in_progress",
-                        "project": task.project_name or "Non défini"
-                    },
-                    "feature": feature_info,
-                    "actions": {
-                        "comment_added": True,
-                        "context_exported": True,
-                        "export_path": f"{project_info['path']}/AGENTS.md"
-                    },
-                    "message": f"Vous travaillez maintenant sur: {task.name}"
-                }, indent=2, ensure_ascii=False)
-            else:
-                return json.dumps({
-                    "success": True,
-                    "message": "Work command executed successfully",
-                    "output": result["output"]
-                }, indent=2, ensure_ascii=False)
-
-        except Exception as e:
-            # If we can't get details, just return the CLI output
-            return json.dumps({
-                "success": True,
-                "message": "Work command executed",
-                "output": result["output"]
-            }, indent=2, ensure_ascii=False)
-    else:
-        error_msg = result.get("error", "Failed to start working on ticket")
-        details = result.get("output", "")
-
-        return json.dumps({
-            "error": error_msg,
-            "details": details,
-            "hint": "Make sure the ticket ID is correct and you have access to it."
-        })
+    # Use CLI command with --yes --json to get structured output
+    result = run_cli_command(["work", task_id, "--yes"], timeout=120)
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -527,28 +476,8 @@ async def notiondev_list_projects() -> str:
     Returns:
         JSON array of projects with their IDs and names
     """
-    asana = get_asana_client()
-    if not asana:
-        return json.dumps({"error": "Failed to initialize Asana client"})
-
-    try:
-        projects = asana.get_portfolio_projects()
-        if not projects:
-            return json.dumps({
-                "warning": "No projects found in portfolio",
-                "hint": "Make sure portfolio_gid is configured correctly"
-            })
-
-        return json.dumps([
-            {
-                "id": p.gid,
-                "name": p.name,
-                "color": p.color
-            }
-            for p in projects
-        ], indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(["projects"])
+    return json.dumps(result, indent=2)
 
 
 # =============================================================================
@@ -575,45 +504,19 @@ async def notiondev_create_ticket(
     Returns:
         JSON with created ticket details including ID and URL
     """
-    asana = get_asana_client()
-    if not asana:
-        return json.dumps({"error": "Failed to initialize Asana client"})
+    args = ["create-ticket", "--name", name]
 
-    try:
-        # Prepend feature code to notes if provided
-        full_notes = notes
-        if feature_code:
-            feature_header = f"## Feature Code\n{feature_code}\n\n"
-            full_notes = feature_header + notes
+    if feature_code:
+        args.extend(["--feature", feature_code])
+    if notes:
+        args.extend(["--notes", notes])
+    if project_gid:
+        args.extend(["--project", project_gid])
+    if due_on:
+        args.extend(["--due", due_on])
 
-        task = asana.create_task(
-            name=name,
-            notes=full_notes,
-            project_gid=project_gid if project_gid else None,
-            due_on=due_on if due_on else None
-        )
-
-        if task:
-            # Build Asana URL
-            project_id = task.project_gid or "0"
-            asana_url = f"https://app.asana.com/0/{project_id}/{task.gid}"
-
-            return json.dumps({
-                "success": True,
-                "message": f"Ticket '{name}' created successfully",
-                "ticket": {
-                    "id": task.gid,
-                    "name": task.name,
-                    "feature_code": task.feature_code,
-                    "url": asana_url,
-                    "due_on": task.due_on
-                }
-            }, indent=2)
-        else:
-            return json.dumps({"error": "Failed to create ticket"})
-
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(args)
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -638,42 +541,21 @@ async def notiondev_update_ticket(
     Returns:
         JSON with updated ticket details
     """
-    asana = get_asana_client()
-    if not asana:
-        return json.dumps({"error": "Failed to initialize Asana client"})
+    args = ["update-ticket", task_id]
 
-    try:
-        task = asana.update_task(
-            task_gid=task_id,
-            name=name if name else None,
-            notes=notes if notes else None,
-            append_notes=append_notes,
-            due_on=due_on if due_on else None,
-            assignee_gid=assignee_gid if assignee_gid else None
-        )
+    if name:
+        args.extend(["--name", name])
+    if notes:
+        args.extend(["--notes", notes])
+    if append_notes:
+        args.append("--append")
+    if due_on:
+        args.extend(["--due", due_on])
+    if assignee_gid:
+        args.extend(["--assignee", assignee_gid])
 
-        if task:
-            # Build Asana URL
-            project_id = task.project_gid or "0"
-            asana_url = f"https://app.asana.com/0/{project_id}/{task.gid}"
-
-            return json.dumps({
-                "success": True,
-                "message": f"Ticket '{task.name}' updated successfully",
-                "ticket": {
-                    "id": task.gid,
-                    "name": task.name,
-                    "feature_code": task.feature_code,
-                    "url": asana_url,
-                    "due_on": task.due_on,
-                    "completed": task.completed
-                }
-            }, indent=2)
-        else:
-            return json.dumps({"error": f"Failed to update ticket {task_id}"})
-
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(args)
+    return json.dumps(result, indent=2)
 
 
 # =============================================================================
@@ -686,25 +568,8 @@ async def notiondev_list_modules() -> str:
 
     Returns JSON array of modules with their properties.
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
-
-    try:
-        modules = notion.list_modules()
-        return json.dumps([
-            {
-                "id": m.notion_id,
-                "name": m.name,
-                "description": m.description,
-                "code_prefix": m.code_prefix,
-                "application": m.application,
-                "status": m.status
-            }
-            for m in modules
-        ], indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(["modules"])
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -717,26 +582,8 @@ async def notiondev_get_module(code_prefix: str) -> str:
     Returns:
         Module details including full documentation content
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
-
-    try:
-        module = notion.get_module_by_prefix(code_prefix)
-        if not module:
-            return json.dumps({"error": f"Module with prefix '{code_prefix}' not found"})
-
-        return json.dumps({
-            "id": module.notion_id,
-            "name": module.name,
-            "description": module.description,
-            "code_prefix": module.code_prefix,
-            "application": module.application,
-            "status": module.status,
-            "content": module.content
-        }, indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(["module", code_prefix])
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -749,32 +596,11 @@ async def notiondev_list_features(module_prefix: str = None) -> str:
     Returns:
         JSON array of features
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
-
-    try:
-        if module_prefix:
-            module = notion.get_module_by_prefix(module_prefix)
-            if not module:
-                return json.dumps({"error": f"Module with prefix '{module_prefix}' not found"})
-            features = notion.list_features_for_module(module.notion_id)
-        else:
-            features = notion.search_features()
-
-        return json.dumps([
-            {
-                "code": f.code,
-                "name": f.name,
-                "module": f.module_name,
-                "status": f.status,
-                "plan": f.plan,
-                "user_rights": f.user_rights
-            }
-            for f in features
-        ], indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    args = ["features"]
+    if module_prefix:
+        args.extend(["--module", module_prefix])
+    result = run_cli_command(args)
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -787,27 +613,8 @@ async def notiondev_get_feature(code: str) -> str:
     Returns:
         Feature details including full documentation content
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
-
-    try:
-        feature = notion.get_feature(code)
-        if not feature:
-            return json.dumps({"error": f"Feature '{code}' not found"})
-
-        return json.dumps({
-            "code": feature.code,
-            "name": feature.name,
-            "module": feature.module_name,
-            "status": feature.status,
-            "plan": feature.plan,
-            "user_rights": feature.user_rights,
-            "content": feature.content,
-            "module_content": feature.module.content if feature.module else None
-        }, indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(["feature", code])
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -830,36 +637,18 @@ async def notiondev_create_module(
     Returns:
         Created module details or error
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
+    args = [
+        "create-module",
+        "--name", name,
+        "--prefix", code_prefix,
+        "--description", description,
+        "--application", application
+    ]
+    if content_markdown:
+        args.extend(["--content", content_markdown])
 
-    try:
-        module = notion.create_module(
-            name=name,
-            description=description,
-            code_prefix=code_prefix,
-            application=application,
-            status="Draft",
-            content_markdown=content_markdown
-        )
-
-        if module:
-            return json.dumps({
-                "success": True,
-                "message": f"Module '{name}' created successfully",
-                "module": {
-                    "id": module.notion_id,
-                    "name": module.name,
-                    "code_prefix": module.code_prefix,
-                    "application": module.application,
-                    "status": module.status
-                }
-            }, indent=2)
-        else:
-            return json.dumps({"error": "Failed to create module"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(args)
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -884,50 +673,20 @@ async def notiondev_create_feature(
     Returns:
         Created feature details or error
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
+    args = [
+        "create-feature",
+        "--name", name,
+        "--module", module_prefix
+    ]
+    if content_markdown:
+        args.extend(["--content", content_markdown])
+    if plan:
+        args.extend(["--plan", plan])
+    if user_rights:
+        args.extend(["--rights", user_rights])
 
-    try:
-        # Get module by prefix
-        module = notion.get_module_by_prefix(module_prefix)
-        if not module:
-            return json.dumps({"error": f"Module with prefix '{module_prefix}' not found"})
-
-        # Generate next feature code
-        code = notion.get_next_feature_code(module.notion_id)
-
-        # Parse plan and user_rights
-        plan_list = [p.strip() for p in plan.split(',') if p.strip()] if plan else []
-        rights_list = [r.strip() for r in user_rights.split(',') if r.strip()] if user_rights else []
-
-        feature = notion.create_feature(
-            code=code,
-            name=name,
-            module_id=module.notion_id,
-            status="Draft",
-            plan=plan_list,
-            user_rights=rights_list,
-            content_markdown=content_markdown
-        )
-
-        if feature:
-            return json.dumps({
-                "success": True,
-                "message": f"Feature '{code} - {name}' created successfully",
-                "feature": {
-                    "code": feature.code,
-                    "name": feature.name,
-                    "module": feature.module_name,
-                    "status": feature.status,
-                    "plan": feature.plan,
-                    "user_rights": feature.user_rights
-                }
-            }, indent=2)
-        else:
-            return json.dumps({"error": "Failed to create feature"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(args)
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -946,30 +705,12 @@ async def notiondev_update_module_content(
     Returns:
         Success or error message
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
+    args = ["update-module", code_prefix, "--content", content_markdown]
+    if not replace:
+        args.append("--append")
 
-    try:
-        module = notion.get_module_by_prefix(code_prefix)
-        if not module:
-            return json.dumps({"error": f"Module with prefix '{code_prefix}' not found"})
-
-        success = notion.update_page_content(
-            module.notion_id,
-            content_markdown,
-            replace=replace
-        )
-
-        if success:
-            return json.dumps({
-                "success": True,
-                "message": f"Module '{module.name}' content updated successfully"
-            })
-        else:
-            return json.dumps({"error": "Failed to update module content"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(args)
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -988,30 +729,12 @@ async def notiondev_update_feature_content(
     Returns:
         Success or error message
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
+    args = ["update-feature", code, "--content", content_markdown]
+    if not replace:
+        args.append("--append")
 
-    try:
-        feature = notion.get_feature(code)
-        if not feature:
-            return json.dumps({"error": f"Feature '{code}' not found"})
-
-        success = notion.update_page_content(
-            feature.notion_id,
-            content_markdown,
-            replace=replace
-        )
-
-        if success:
-            return json.dumps({
-                "success": True,
-                "message": f"Feature '{code}' content updated successfully"
-            })
-        else:
-            return json.dumps({"error": "Failed to update feature content"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
+    result = run_cli_command(args)
+    return json.dumps(result, indent=2)
 
 
 # =============================================================================
@@ -1037,54 +760,53 @@ async def notiondev_clone_module(
     Returns:
         JSON with clone status and local path
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
+    # Get module info via CLI
+    module_result = run_cli_command(["module", module_prefix])
+    if "error" in module_result:
+        return json.dumps(module_result, indent=2)
 
+    module_data = module_result.get("module", {})
+    repository_url = module_data.get("repository_url")
+    branch = module_data.get("branch")
+    code_path = module_data.get("code_path")
+    module_name = module_data.get("name", module_prefix)
+
+    if not repository_url:
+        return json.dumps({
+            "error": f"Module '{module_name}' does not have a repository_url configured",
+            "hint": "Add the repository_url property to the module in Notion"
+        })
+
+    # Use GitHub client to clone (still needed for actual git operations)
     github = get_github_client()
     if not github:
         return json.dumps({"error": "Failed to initialize GitHub client"})
 
     try:
-        # Get module from Notion
-        module = notion.get_module_by_prefix(module_prefix)
-        if not module:
-            return json.dumps({"error": f"Module with prefix '{module_prefix}' not found"})
-
-        # Check if repository_url is configured
-        if not module.repository_url:
-            return json.dumps({
-                "error": f"Module '{module.name}' does not have a repository_url configured",
-                "hint": "Add the repository_url property to the module in Notion"
-            })
-
-        # Clone the repository
         result = github.clone_repository(
-            repo_url=module.repository_url,
-            branch=module.branch,
+            repo_url=repository_url,
+            branch=branch,
             force=force
         )
 
         if result["success"]:
-            # Build response with useful information
             response = {
                 "success": True,
-                "message": f"Repository cloned successfully for module '{module.name}'",
+                "message": f"Repository cloned successfully for module '{module_name}'",
                 "module": {
-                    "name": module.name,
-                    "code_prefix": module.code_prefix,
-                    "repository_url": module.repository_url,
-                    "branch": module.branch or "default"
+                    "name": module_name,
+                    "code_prefix": module_prefix,
+                    "repository_url": repository_url,
+                    "branch": branch or "default"
                 },
                 "clone": {
                     "path": result["path"],
-                    "code_path": module.code_path
+                    "code_path": code_path
                 }
             }
 
-            # If code_path is specified, provide full path to code directory
-            if module.code_path:
-                full_code_path = os.path.join(result["path"], module.code_path)
+            if code_path:
+                full_code_path = os.path.join(result["path"], code_path)
                 response["clone"]["full_code_path"] = full_code_path
                 response["hint"] = f"Code is located at: {full_code_path}"
             else:
@@ -1094,7 +816,7 @@ async def notiondev_clone_module(
         else:
             return json.dumps({
                 "error": result.get("error", "Clone failed"),
-                "repository_url": module.repository_url
+                "repository_url": repository_url
             })
 
     except Exception as e:
@@ -1111,27 +833,28 @@ async def notiondev_get_cloned_repo_info(module_prefix: str) -> str:
     Returns:
         JSON with repository information including path, branch, and last commit
     """
-    notion = get_notion_client()
-    if not notion:
-        return json.dumps({"error": "Failed to initialize Notion client"})
+    # Get module info via CLI
+    module_result = run_cli_command(["module", module_prefix])
+    if "error" in module_result:
+        return json.dumps(module_result, indent=2)
+
+    module_data = module_result.get("module", {})
+    repository_url = module_data.get("repository_url")
+    code_path = module_data.get("code_path")
+    module_name = module_data.get("name", module_prefix)
+
+    if not repository_url:
+        return json.dumps({
+            "error": f"Module '{module_name}' does not have a repository_url configured"
+        })
 
     github = get_github_client()
     if not github:
         return json.dumps({"error": "Failed to initialize GitHub client"})
 
     try:
-        # Get module from Notion
-        module = notion.get_module_by_prefix(module_prefix)
-        if not module:
-            return json.dumps({"error": f"Module with prefix '{module_prefix}' not found"})
-
-        if not module.repository_url:
-            return json.dumps({
-                "error": f"Module '{module.name}' does not have a repository_url configured"
-            })
-
         # Get the local path for this repository
-        local_path = github._get_repo_local_path(module.repository_url)
+        local_path = github._get_repo_local_path(repository_url)
 
         # Get repository info
         info = github.get_repository_info(local_path)
@@ -1144,16 +867,16 @@ async def notiondev_get_cloned_repo_info(module_prefix: str) -> str:
 
         return json.dumps({
             "module": {
-                "name": module.name,
-                "code_prefix": module.code_prefix
+                "name": module_name,
+                "code_prefix": module_prefix
             },
             "repository": {
                 "path": info["path"],
                 "branch": info["branch"],
                 "remote_url": info["remote_url"],
                 "last_commit": info["last_commit"],
-                "code_path": module.code_path,
-                "full_code_path": os.path.join(info["path"], module.code_path) if module.code_path else info["path"]
+                "code_path": code_path,
+                "full_code_path": os.path.join(info["path"], code_path) if code_path else info["path"]
             }
         }, indent=2)
 
