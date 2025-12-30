@@ -248,31 +248,80 @@ Once configured, the following tools are available in your AI assistant:
 
 ```bash
 # View current project info
-notion-dev info
+notion-dev info [--json]
 
-# List your assigned Asana tickets  
-notion-dev tickets
+# List your assigned Asana tickets
+notion-dev tickets [--json]
 
 # Work on a specific ticket
-notion-dev work TASK-123456789
+notion-dev work TASK-123456789 [--yes] [--json]
 
-# Get context for a feature
-# other than the one in the Asana ticket
-notion-dev context --feature AU01
+# Get context for a feature (other than the one in the Asana ticket)
+notion-dev context --feature AU01 [--yes]
 
 # Record a comment on the ticket in Asana
 notion-dev comment "This is a comment"
 
-# Mark work as completed
-# This action assigns the ticket to the person who created it
+# Mark work as completed (reassigns to creator)
 notion-dev done
 
 # Interactive mode
 notion-dev interactive
+```
 
-# JSON output for programmatic access
-notion-dev tickets --json
-notion-dev info --json
+### Asana Ticket Management
+
+```bash
+# List projects in portfolio
+notion-dev projects [--json]
+
+# Create a new ticket
+notion-dev create-ticket --name "AU01 - Fix login" [--feature AU01] [--notes "..."] [--due 2025-02-01] [--project PROJECT_GID] [--json]
+
+# Update an existing ticket
+notion-dev update-ticket TASK_ID [--name "New name"] [--notes "..."] [--append] [--due 2025-02-01] [--assignee USER_GID] [--json]
+```
+
+### Notion Module Commands
+
+```bash
+# List all modules
+notion-dev modules [--json]
+
+# Get module details (includes repository_url, branch, code_path)
+notion-dev module ND [--json]
+
+# Create a new module
+notion-dev create-module --name "Auth" --description "Authentication" --prefix AUTH [--application Backend] [--content "..."] [--json]
+
+# Update module documentation
+notion-dev update-module ND --content "# New docs..." [--append] [--json]
+```
+
+### Notion Feature Commands
+
+```bash
+# List all features (optionally filter by module)
+notion-dev features [--module ND] [--json]
+
+# Get feature details (includes parent module's repository info)
+notion-dev feature ND01 [--json]
+
+# Create a new feature (code auto-generated)
+notion-dev create-feature --name "New Feature" --module ND [--content "..."] [--plan "free,premium"] [--rights "admin,user"] [--json]
+
+# Update feature documentation
+notion-dev update-feature ND01 --content "# Updated docs..." [--append] [--json]
+```
+
+### JSON Output
+
+All commands support `--json` output for scripting and MCP integration:
+
+```bash
+notion-dev tickets --json | jq '.tasks[0].feature_code'
+notion-dev module ND --json | jq '.module.repository_url'
+notion-dev feature ND01 --json | jq '.feature.module_repository_url'
 ```
 
 ### Typical Developer Workflow
@@ -370,55 +419,6 @@ The goal is to verify functional code coverage and avoid regressions since the A
  */
 export class GoogleAuthService {
   // Implementation...
-}
-```
-
-### JSON Output Support
-
-NotionDev supports JSON output for programmatic access:
-
-```bash
-# Get tickets in JSON format
-notion-dev tickets --json
-
-# Get current task info in JSON format
-notion-dev info --json
-```
-
-**Example JSON output for `tickets --json`:**
-```json
-{
-  "tasks": [
-    {
-      "id": "1234567890",
-      "name": "Implement Google SSO",
-      "feature_code": "AU02",
-      "status": "in_progress",
-      "completed": false,
-      "due_on": "2025-02-01",
-      "url": "https://app.asana.com/0/...",
-      "notion_url": "https://www.notion.so/..."
-    }
-  ]
-}
-```
-
-**Example JSON output for `info --json`:**
-```json
-{
-  "project": {
-    "name": "my-saas-api",
-    "path": "/Users/dev/projects/my-saas-api",
-    "is_git_repo": true
-  },
-  "current_task": {
-    "id": "1234567890",
-    "name": "Implement Google SSO",
-    "feature_code": "AU02",
-    "status": "in_progress",
-    "url": "https://app.asana.com/0/...",
-    "notion_url": "https://www.notion.so/..."
-  }
 }
 ```
 
@@ -537,19 +537,47 @@ pip install -e .
 ```
 notion-dev/
 ├── notion_dev/
-│   ├── core/              # Business logic
-│   │   ├── config.py      # Multi-project configuration
-│   │   ├── asana_client.py # Asana API client
-│   │   ├── notion_client.py # Notion API client
-│   │   └── context_builder.py # AI context generator
+│   ├── __init__.py           # Package init with embedded setup.py
 │   ├── cli/
-│   │   └── main.py        # CLI interface
-│   └── models/            # Data models
-├── install_notion_dev.sh  # Installation script
+│   │   └── main.py           # Click CLI commands and Rich UI
+│   ├── core/                 # Business logic
+│   │   ├── asana_client.py   # Asana API client (requests)
+│   │   ├── config.py         # YAML config with dataclasses
+│   │   ├── context_builder.py # AI context generator (AGENTS.md)
+│   │   ├── github_client.py  # GitHub repo cloning
+│   │   ├── models.py         # Data models (Module, Feature, AsanaTask)
+│   │   └── notion_client.py  # Notion API client (SDK)
+│   └── mcp_server/
+│       └── server.py         # MCP server (FastMCP) - wraps CLI commands
+├── tests/
+│   └── unit/                 # Unit tests
+├── install_notion_dev.sh     # Installation script
 └── README.md
 ```
 
 ## 📝 Changelog
+
+### v1.4.0 (2025-12-30)
+- ✅ Refactored MCP server to use CLI commands exclusively (single source of truth)
+- ✅ Added `--json` output to `work` command for MCP integration
+- ✅ Added `module_repository_url`, `module_branch`, `module_code_path` to feature command output
+
+### v1.3.0 (2025-12-26)
+- ✅ Added GitHub integration for module repository cloning
+- ✅ New MCP tools: `clone_module`, `get_cloned_repo_info`, `cleanup_cloned_repos`
+- ✅ Added `repository_url`, `branch`, `code_path` fields to Module model
+- ✅ Added `notiondev_list_projects` MCP tool
+
+### v1.2.0 (2025-12-25)
+- ✅ Added Notion CRUD commands: `modules`, `module`, `features`, `feature`
+- ✅ Added `create-module`, `create-feature`, `update-module`, `update-feature` commands
+- ✅ Added `--project` option to `create-ticket` command
+- ✅ Added `--json` output to all new commands
+
+### v1.1.0 (2025-12-20)
+- ✅ Added MCP server support (`notion-dev[mcp]`)
+- ✅ FastMCP integration with 19 tools available
+- ✅ Full Asana ticket management via MCP
 
 ### v1.0.3 (2025-01-28)
 - ✅ Added JSON output support for `tickets` and `info` commands
