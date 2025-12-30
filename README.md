@@ -72,8 +72,6 @@ For NotionDev to work, your Notion workspace must contain 2 databases with the a
 - `name` (Title): Feature name - **required**
 - `status` (Select): draft, review, validated, obsolete - **required**
 - `module` (Relation): Link to parent module - **required**
-- `plan` (Multi-select): Subscription plans - *optional*
-- `user_rights` (Multi-select): Access rights - *optional*
 
 ## 🚀 Installation
 
@@ -87,6 +85,19 @@ pip install notion-dev
 **CLI + MCP Server** (for Claude Code, Cursor, etc.):
 ```bash
 pip install 'notion-dev[mcp]'
+```
+
+### Update
+
+```bash
+# Update to latest version
+pip install --upgrade notion-dev
+
+# Update with MCP support
+pip install --upgrade 'notion-dev[mcp]'
+
+# Check current version
+notion-dev --version
 ```
 
 ### Install from Source
