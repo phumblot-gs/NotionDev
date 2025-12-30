@@ -60,12 +60,17 @@ class TestContextBuilder:
         # Generate AGENTS.md content
         content = builder._build_agents_content(context)
         
-        # Verify content structure
+        # Verify content structure - main sections use # (level 1)
         assert "# AGENTS.md - TestProject" in content
-        assert "## Project Overview" in content
-        assert "**Active Feature**: AU01 - User Authentication" in content
-        assert "**Active Module**: Auth Module" in content
-        assert "**Current Task**: 789 - Implement OAuth" in content
+        assert "# 1. CURRENT TASK" in content
+        assert "# 2. FEATURE SPECIFICATIONS" in content
+        assert "# 3. MODULE DOCUMENTATION" in content
+        assert "# 4. RULES & GUIDELINES" in content
+        # Sub-sections use ## (level 2)
+        assert "## Asana Ticket: Implement OAuth" in content
+        assert "**Task ID**: 789" in content
+        assert "## Feature: AU01 - User Authentication" in content
+        assert "**Module**: Auth Module" in content
         assert "NOTION FEATURES: AU01" in content
         assert "This feature implements user authentication" in content
     
@@ -114,10 +119,12 @@ class TestContextBuilder:
             agents_path = os.path.join(tmpdir, "AGENTS.md")
             assert os.path.exists(agents_path)
 
-            # Read and verify content
+            # Read and verify content - main sections use # (level 1)
             with open(agents_path, 'r') as f:
                 content = f.read()
-            assert "**Active Feature**: AU01 - User Authentication" in content
+            assert "## Feature: AU01 - User Authentication" in content
+            assert "# 1. CURRENT TASK" in content
+            assert "# 2. FEATURE SPECIFICATIONS" in content
     
     def test_content_truncation(self):
         """Test that content is properly truncated when exceeding max length"""
@@ -187,3 +194,57 @@ class TestContextBuilder:
             assert not os.path.exists(cursor_dir)
             assert not os.path.exists(os.path.join(tmpdir, ".cursorrules"))
             assert os.path.exists(os.path.join(tmpdir, "AGENTS.md"))
+
+    def test_normalize_headings_with_level1(self):
+        """Test that level 1 headings are shifted to level 2"""
+        config = MagicMock(spec=Config)
+        builder = ContextBuilder(MagicMock(), config)
+
+        content = """# Main Title
+Some text
+## Subtitle
+More text
+### Sub-subtitle
+"""
+        normalized = builder._normalize_headings(content)
+
+        # All headings should be shifted by one level
+        assert "## Main Title" in normalized
+        assert "### Subtitle" in normalized
+        assert "#### Sub-subtitle" in normalized
+        # Original level 1 should not exist
+        assert "\n# Main Title" not in normalized
+
+    def test_normalize_headings_already_level2(self):
+        """Test that content starting with ## is not modified"""
+        config = MagicMock(spec=Config)
+        builder = ContextBuilder(MagicMock(), config)
+
+        content = """## Already Level 2
+Some text
+### Level 3
+"""
+        normalized = builder._normalize_headings(content)
+
+        # Content should remain unchanged
+        assert normalized == content
+        assert "## Already Level 2" in normalized
+        assert "### Level 3" in normalized
+
+    def test_normalize_headings_empty_content(self):
+        """Test that empty content is handled correctly"""
+        config = MagicMock(spec=Config)
+        builder = ContextBuilder(MagicMock(), config)
+
+        assert builder._normalize_headings("") == ""
+        assert builder._normalize_headings(None) is None
+
+    def test_normalize_headings_no_headings(self):
+        """Test content without any headings"""
+        config = MagicMock(spec=Config)
+        builder = ContextBuilder(MagicMock(), config)
+
+        content = "Just some text without any headings."
+        normalized = builder._normalize_headings(content)
+
+        assert normalized == content
