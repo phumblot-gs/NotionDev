@@ -12,26 +12,42 @@ Before creating a release, ensure:
 - [ ] CHANGELOG.md is updated (if maintained)
 - [ ] No hardcoded test values or debug prints in code
 
-## 🔢 Version Update Process
+## 🚀 Quick Release (Recommended)
 
-NotionDev uses semantic versioning (MAJOR.MINOR.PATCH). Version numbers must be synchronized in **THREE** locations:
+Use the `release.sh` script to automate the entire process:
+
+```bash
+./release.sh 1.4.0
+```
+
+This script will:
+1. Validate the version format (X.Y.Z)
+2. Update version in all 3 files (`__init__.py`, `setup.py`, `pyproject.toml`)
+3. Show the diff for review
+4. Commit the changes
+5. Create an annotated git tag
+6. Push to GitHub (main branch + tag)
+
+After the script completes, create a GitHub release to trigger PyPI publishing.
+
+---
+
+## 🔢 Manual Version Update Process
+
+If you prefer to update manually, NotionDev uses semantic versioning (MAJOR.MINOR.PATCH). Version numbers must be synchronized in **THREE** locations:
 
 ### 1. Update Version Numbers
 
-```bash
-# Example: updating from 1.0.2 to 1.0.3
-```
-
 #### File 1: `notion_dev/__init__.py`
 ```python
-__version__ = "1.0.3"  # Update this line
+__version__ = "1.4.0"  # Update this line
 ```
 
 #### File 2: `setup.py`
 ```python
 setup(
     name="notion-dev",
-    version="1.0.3",  # Update this line
+    version="1.4.0",  # Update this line
     ...
 )
 ```
@@ -40,41 +56,31 @@ setup(
 ```toml
 [project]
 name = "notion-dev"
-version = "1.0.3"  # Update this line
+version = "1.4.0"  # Update this line
 ```
 
 ### 2. Commit Version Changes
 
 ```bash
-# Add all version updates
 git add notion_dev/__init__.py setup.py pyproject.toml
-
-# Commit with descriptive message
-git commit -m "chore: bump version to 1.0.3"
-
-# Push to main branch
+git commit -m "chore: bump version to 1.4.0"
 git push origin main
 ```
 
-## 🏷️ Creating a Release
-
-### 1. Create Git Tag
+### 3. Create Git Tag
 
 ```bash
-# Create annotated tag
-git tag -a v1.0.3 -m "Release version 1.0.3"
-
-# Push tag to GitHub
-git push origin v1.0.3
+git tag -a v1.4.0 -m "Release version 1.4.0"
+git push origin v1.4.0
 ```
 
-### 2. Create GitHub Release
+## 🏷️ Creating a GitHub Release
 
 1. Go to https://github.com/phumblot-gs/NotionDev/releases
 2. Click "Create a new release"
-3. Select the tag you just created (v1.0.3)
+3. Select the tag you just created (e.g., v1.4.0)
 4. Fill in release details:
-   - **Release title**: v1.0.3
+   - **Release title**: e.g., v1.4.0
    - **Description**: List main changes, fixes, and new features
 5. Click "Publish release"
 
@@ -116,40 +122,6 @@ git push origin :refs/tags/v1.0.3
 # Recreate the tag
 git tag -a v1.0.3 -m "Release version 1.0.3"
 git push origin v1.0.3
-```
-
-## 📝 Quick Release Script
-
-For convenience, you can create a release script:
-
-```bash
-#!/bin/bash
-# release.sh
-
-if [ -z "$1" ]; then
-    echo "Usage: ./release.sh <version>"
-    echo "Example: ./release.sh 1.0.3"
-    exit 1
-fi
-
-VERSION=$1
-
-# Update version in all files
-sed -i '' "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" notion_dev/__init__.py
-sed -i '' "s/version=\".*\"/version=\"$VERSION\"/" setup.py
-sed -i '' "s/version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-
-# Commit and tag
-git add notion_dev/__init__.py setup.py pyproject.toml
-git commit -m "chore: bump version to $VERSION"
-git tag -a "v$VERSION" -m "Release version $VERSION"
-
-# Push
-git push origin main
-git push origin "v$VERSION"
-
-echo "✅ Version $VERSION tagged and pushed!"
-echo "📦 Now create a release on GitHub to trigger PyPI publishing"
 ```
 
 ## ⚠️ Important Notes
