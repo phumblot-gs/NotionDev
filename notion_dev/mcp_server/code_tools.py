@@ -243,8 +243,8 @@ class CodeReader:
                             "file": relative_path,
                             "line_number": i + 1,
                             "line": line.rstrip(),
-                            "context_before": [l.rstrip() for l in lines[start:i]],
-                            "context_after": [l.rstrip() for l in lines[i+1:end]],
+                            "context_before": [ln.rstrip() for ln in lines[start:i]],
+                            "context_after": [ln.rstrip() for ln in lines[i + 1:end]],
                         })
 
                         files_with_matches.add(relative_path)
