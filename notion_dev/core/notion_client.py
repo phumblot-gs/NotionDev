@@ -1122,3 +1122,67 @@ class NotionClient:
         next_num = max(numbers) + 1 if numbers else 1
         return f"{prefix}{next_num:02d}"
 
+    # Alias methods for CLI compatibility
+    def get_feature_by_code(self, code: str) -> Optional[Feature]:
+        """Alias for get_feature - used by CLI."""
+        return self.get_feature(code)
+
+    def get_all_features(self) -> List[Feature]:
+        """Get all features from the database."""
+        return self.search_features("")
+
+    def get_features_by_module(self, module_prefix: str) -> List[Feature]:
+        """Get features filtered by module prefix."""
+        module = self.get_module_by_prefix(module_prefix)
+        if not module:
+            return []
+        return self.list_features_for_module(module.notion_id)
+
+    def get_modules(self) -> List[Module]:
+        """Alias for list_modules - used by remote backend."""
+        return self.list_modules()
+
+    def update_feature_content(
+        self,
+        code: str,
+        content_markdown: str,
+        replace: bool = True
+    ) -> bool:
+        """Update a feature's content by its code.
+
+        Args:
+            code: Feature code (e.g., 'CC01')
+            content_markdown: New content in markdown format
+            replace: If True, replace all content. If False, append.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        feature = self.get_feature(code.upper())
+        if not feature or not feature.notion_id:
+            logger.error(f"Feature {code} not found")
+            return False
+        return self.update_page_content(feature.notion_id, content_markdown, replace)
+
+    def update_module_content(
+        self,
+        code_prefix: str,
+        content_markdown: str,
+        replace: bool = True
+    ) -> bool:
+        """Update a module's content by its code prefix.
+
+        Args:
+            code_prefix: Module code prefix (e.g., 'CC')
+            content_markdown: New content in markdown format
+            replace: If True, replace all content. If False, append.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        module = self.get_module_by_prefix(code_prefix.upper())
+        if not module or not module.notion_id:
+            logger.error(f"Module {code_prefix} not found")
+            return False
+        return self.update_page_content(module.notion_id, content_markdown, replace)
+

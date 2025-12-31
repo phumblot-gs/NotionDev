@@ -1,0 +1,62 @@
+# NOTION FEATURES: ND03
+# MODULES: NotionDev
+# DESCRIPTION: Fly.io deployment configuration for NotionDev MCP Server
+# LAST_SYNC: 2025-12-31
+
+# Application name - will be set by deploy script
+# For staging: notiondev-staging
+# For production: notiondev-prod
+app = "notiondev-staging"
+primary_region = "cdg"  # Paris
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Non-sensitive environment variables
+  MCP_TRANSPORT = "sse"
+  MCP_PORT = "8000"
+  MCP_AUTH_ENABLED = "true"
+  REPOS_CACHE_DIR = "/data/repos"
+  REPOS_CACHE_TTL_HOURS = "1"
+  # ALLOWED_EMAIL_DOMAIN is set via secrets for flexibility
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 100
+    soft_limit = 80
+
+# Health check endpoint
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "60s"
+  method = "GET"
+  path = "/health"
+  timeout = "10s"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[mounts]
+  source = "notiondev_repos"
+  destination = "/data/repos"
+  initial_size = "1gb"
+
+# Secrets to configure (via fly secrets set):
+# - GOOGLE_CLIENT_ID
+# - GOOGLE_CLIENT_SECRET
+# - JWT_SECRET
+# - ALLOWED_EMAIL_DOMAIN
+# - SERVICE_NOTION_TOKEN
+# - SERVICE_ASANA_TOKEN
+# - GITHUB_TOKEN (optional, for private repos)

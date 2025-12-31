@@ -1,12 +1,25 @@
 # notion_dev/mcp_server/server.py
 """
+NOTION FEATURES: ND02, ND03
+MODULES: NotionDev
+DESCRIPTION: MCP Server supporting both local (stdio) and remote (SSE) modes
+LAST_SYNC: 2025-12-31
+
 NotionDev MCP Server - Main entry point
 
 This server exposes NotionDev functionality to Claude Code via the
 Model Context Protocol (MCP).
 
+Supports two modes:
+- Local (ND02): stdio transport for Claude Code CLI
+- Remote (ND03): SSE transport with Google OAuth for Claude.ai
+
 Usage:
+    # Local mode (default)
     python -m notion_dev.mcp_server.server
+
+    # Remote mode with authentication
+    python -m notion_dev.mcp_server.server --transport sse --port 8000 --auth
 
 Or via Claude Code:
     claude mcp add --transport stdio notiondev -- python -m notion_dev.mcp_server.server
@@ -16,6 +29,7 @@ import os
 import sys
 import json
 import logging
+import argparse
 import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -27,6 +41,9 @@ except ImportError:
     MCP_AVAILABLE = False
     FastMCP = None
     Context = None
+
+# Import server configuration (ND03)
+from .config import ServerConfig, TransportMode, get_config, set_config
 
 # Configure logging to stderr (stdout is reserved for MCP protocol)
 logging.basicConfig(
@@ -369,6 +386,22 @@ async def notiondev_list_tickets() -> str:
 
     Returns JSON with ticket information including ID, name, feature code, and status.
     """
+    # Check if we're in remote mode
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            tickets = backend.list_tickets()
+            return json.dumps(tickets, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Remote backend error: {e}")
+            return json.dumps({
+                "error": str(e),
+                "hint": "Make sure you're authenticated and your email is linked to an Asana account"
+            })
+
+    # Local mode: use CLI
     result = run_notion_dev_command(["tickets", "--json"])
 
     if result["success"]:
@@ -386,6 +419,19 @@ async def notiondev_get_info() -> str:
 
     Returns JSON with project details and current working ticket if any.
     """
+    # Check if we're in remote mode
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            info = backend.get_info()
+            return json.dumps(info, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Remote backend error: {e}")
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     result = run_notion_dev_command(["info", "--json"])
 
     if result["success"]:
@@ -419,15 +465,35 @@ async def notiondev_work_on_ticket(task_id: str, ctx: Context = None) -> str:
 
 
 @mcp.tool()
-async def notiondev_add_comment(message: str) -> str:
+async def notiondev_add_comment(message: str, task_id: str = "") -> str:
     """Add a comment to the current working ticket in Asana.
 
     Args:
         message: The comment message to add
+        task_id: (Remote mode only) The task ID to comment on
 
     Returns:
         Confirmation or error message
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        if not task_id:
+            return json.dumps({
+                "error": "task_id is required in remote mode",
+                "hint": "Provide the task_id parameter"
+            })
+        try:
+            backend = get_remote_backend()
+            success = backend.add_comment(task_id, message)
+            if success:
+                return f"Comment added successfully: \"{message}\""
+            else:
+                return json.dumps({"error": "Failed to add comment"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     result = run_notion_dev_command(["comment", message])
 
     if result["success"]:
@@ -476,6 +542,17 @@ async def notiondev_list_projects() -> str:
     Returns:
         JSON array of projects with their IDs and names
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            projects = backend.list_projects()
+            return json.dumps(projects, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     result = run_cli_command(["projects"])
     return json.dumps(result, indent=2)
 
@@ -504,6 +581,26 @@ async def notiondev_create_ticket(
     Returns:
         JSON with created ticket details including ID and URL
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            ticket = backend.create_ticket(
+                name=name,
+                notes=notes,
+                project_gid=project_gid or None,
+                due_on=due_on or None,
+                feature_code=feature_code or None
+            )
+            if ticket:
+                return json.dumps(ticket, indent=2)
+            else:
+                return json.dumps({"error": "Failed to create ticket"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     args = ["create-ticket", "--name", name]
 
     if feature_code:
@@ -541,6 +638,27 @@ async def notiondev_update_ticket(
     Returns:
         JSON with updated ticket details
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            ticket = backend.update_ticket(
+                task_id=task_id,
+                name=name or None,
+                notes=notes or None,
+                append_notes=append_notes,
+                due_on=due_on or None,
+                assignee_gid=assignee_gid or None
+            )
+            if ticket:
+                return json.dumps(ticket, indent=2)
+            else:
+                return json.dumps({"error": "Failed to update ticket"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     args = ["update-ticket", task_id]
 
     if name:
@@ -568,6 +686,17 @@ async def notiondev_list_modules() -> str:
 
     Returns JSON array of modules with their properties.
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            modules = backend.list_modules()
+            return json.dumps(modules, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     result = run_cli_command(["modules"])
     return json.dumps(result, indent=2)
 
@@ -582,6 +711,20 @@ async def notiondev_get_module(code_prefix: str) -> str:
     Returns:
         Module details including full documentation content
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            module = backend.get_module(code_prefix)
+            if module:
+                return json.dumps(module, indent=2, ensure_ascii=False)
+            else:
+                return json.dumps({"error": f"Module '{code_prefix}' not found"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     result = run_cli_command(["module", code_prefix])
     return json.dumps(result, indent=2)
 
@@ -596,6 +739,17 @@ async def notiondev_list_features(module_prefix: str = None) -> str:
     Returns:
         JSON array of features
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            features = backend.list_features(module_prefix)
+            return json.dumps(features, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     args = ["features"]
     if module_prefix:
         args.extend(["--module", module_prefix])
@@ -613,6 +767,20 @@ async def notiondev_get_feature(code: str) -> str:
     Returns:
         Feature details including full documentation content
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            feature = backend.get_feature(code)
+            if feature:
+                return json.dumps(feature, indent=2, ensure_ascii=False)
+            else:
+                return json.dumps({"error": f"Feature '{code}' not found"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     result = run_cli_command(["feature", code])
     return json.dumps(result, indent=2)
 
@@ -1343,6 +1511,151 @@ Ready? Please answer the questions above to begin!
 
 
 # =============================================================================
+# MCP Tools - Code Reading (ND03 - Remote mode only)
+# =============================================================================
+
+@mcp.tool()
+async def notiondev_read_file(
+    module_prefix: str,
+    file_path: str,
+    start_line: int = 1,
+    end_line: Optional[int] = None,
+) -> str:
+    """Read the contents of a file in a cloned repository.
+
+    This tool is available in remote mode for Product Owners to analyze code.
+
+    Args:
+        module_prefix: Module code prefix (e.g., 'CC', 'API')
+        file_path: Relative path to file within the repository
+        start_line: First line to read (1-indexed, default: 1)
+        end_line: Last line to read (None for all lines)
+
+    Returns:
+        JSON with file content and metadata
+    """
+    config = get_config()
+    if not config.is_tool_enabled("notiondev_read_file"):
+        return json.dumps({
+            "error": "This tool is only available in remote mode",
+            "hint": "Use standard file reading tools in local mode"
+        })
+
+    from .code_tools import get_code_reader
+    reader = get_code_reader()
+    result = reader.read_file(module_prefix, file_path, start_line, end_line)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def notiondev_search_code(
+    module_prefix: str,
+    pattern: str,
+    glob: str = "**/*",
+    max_results: int = 50,
+    context_lines: int = 2,
+) -> str:
+    """Search for a pattern in the code of a module.
+
+    This tool is available in remote mode for Product Owners to analyze code.
+
+    Args:
+        module_prefix: Module code prefix (e.g., 'CC', 'API')
+        pattern: Regex pattern to search for
+        glob: File glob pattern to filter files (default: all files)
+        max_results: Maximum number of matches to return (default: 50)
+        context_lines: Number of context lines before/after match (default: 2)
+
+    Returns:
+        JSON with search results including file paths, line numbers, and context
+    """
+    config = get_config()
+    if not config.is_tool_enabled("notiondev_search_code"):
+        return json.dumps({
+            "error": "This tool is only available in remote mode",
+            "hint": "Use standard grep/search tools in local mode"
+        })
+
+    from .code_tools import get_code_reader
+    reader = get_code_reader()
+    result = reader.search_code(module_prefix, pattern, glob, max_results, context_lines)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def notiondev_list_files(
+    module_prefix: str,
+    glob_pattern: str = "**/*",
+    include_size: bool = False,
+    max_files: int = 500,
+) -> str:
+    """List files in a module's repository.
+
+    This tool is available in remote mode for Product Owners to explore code structure.
+
+    Args:
+        module_prefix: Module code prefix (e.g., 'CC', 'API')
+        glob_pattern: Glob pattern to filter files (default: all files)
+        include_size: Include file sizes in results (default: false)
+        max_files: Maximum number of files to return (default: 500)
+
+    Returns:
+        JSON with file listing
+    """
+    config = get_config()
+    if not config.is_tool_enabled("notiondev_list_files"):
+        return json.dumps({
+            "error": "This tool is only available in remote mode",
+            "hint": "Use standard ls/find tools in local mode"
+        })
+
+    from .code_tools import get_code_reader
+    reader = get_code_reader()
+    result = reader.list_files(module_prefix, glob_pattern, include_size, max_files)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def notiondev_prepare_feature_context(
+    module_prefix: str,
+    feature_code: str,
+    max_total_lines: int = 2000,
+) -> str:
+    """Prepare aggregated code context for a feature.
+
+    This tool intelligently gathers relevant code for a feature:
+    1. Searches for files containing the feature code in headers
+    2. Identifies related imports and dependencies
+    3. Creates a summary suitable for AI analysis
+
+    This is the primary tool for Product Owners to understand feature implementation.
+
+    Args:
+        module_prefix: Module code prefix (e.g., 'CC', 'API')
+        feature_code: Feature code (e.g., 'CC01', 'API02')
+        max_total_lines: Maximum total lines to include (default: 2000)
+
+    Returns:
+        JSON with aggregated context including:
+        - primary_files: Files with feature header
+        - secondary_files: Files referencing the feature
+        - tree_summary: Directory structure
+        - suggestions: Recommendations for further analysis
+    """
+    config = get_config()
+    if not config.is_tool_enabled("notiondev_prepare_feature_context"):
+        return json.dumps({
+            "error": "This tool is only available in remote mode",
+            "hint": "Use notiondev_work_on_ticket in local mode for similar functionality"
+        })
+
+    from .code_tools import get_code_reader
+    reader = get_code_reader()
+    result = reader.prepare_feature_context(module_prefix, feature_code, max_total_lines)
+    return json.dumps(result, indent=2)
+
+
+# =============================================================================
 # MCP Resources - Configuration & State
 # =============================================================================
 
@@ -1397,6 +1710,64 @@ async def get_methodology_resource() -> str:
 # Main entry point
 # =============================================================================
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="NotionDev MCP Server",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Local mode (default) - for Claude Code CLI
+  python -m notion_dev.mcp_server.server
+
+  # Remote mode - for Claude.ai web interface
+  python -m notion_dev.mcp_server.server --transport sse --port 8000 --auth
+
+Environment variables (for remote mode):
+  GOOGLE_CLIENT_ID       Google OAuth client ID
+  GOOGLE_CLIENT_SECRET   Google OAuth client secret
+  JWT_SECRET             Secret for JWT token signing
+  ALLOWED_EMAIL_DOMAIN   Restrict login to this domain
+  SERVICE_NOTION_TOKEN   Notion token for service account
+  SERVICE_ASANA_TOKEN    Asana PAT for service account
+        """
+    )
+
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse"],
+        default="stdio",
+        help="Transport mode: stdio (local) or sse (remote). Default: stdio"
+    )
+
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for SSE transport. Default: 8000"
+    )
+
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host to bind for SSE transport. Default: 0.0.0.0"
+    )
+
+    parser.add_argument(
+        "--auth",
+        action="store_true",
+        help="Enable Google OAuth authentication (required for remote mode)"
+    )
+
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging"
+    )
+
+    return parser.parse_args()
+
+
 def main():
     """Run the MCP server."""
     if not MCP_AVAILABLE:
@@ -1413,8 +1784,308 @@ def main():
         print("  notion-dev --help", file=sys.stderr)
         sys.exit(1)
 
-    logger.info("Starting NotionDev MCP Server...")
-    mcp.run(transport="stdio")
+    # Parse command line arguments
+    args = parse_args()
+
+    # Configure logging level
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled")
+
+    # Initialize server configuration
+    config = ServerConfig.from_args(
+        transport=args.transport,
+        port=args.port,
+        host=args.host,
+        auth=args.auth,
+    )
+    set_config(config)
+
+    # Validate configuration for remote mode
+    if config.is_remote:
+        errors = config.validate()
+        if errors:
+            print("ERROR: Invalid configuration for remote mode:", file=sys.stderr)
+            for error in errors:
+                print(f"  - {error}", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("Set the required environment variables and try again.", file=sys.stderr)
+            sys.exit(1)
+
+    logger.info(f"Starting NotionDev MCP Server in {config.transport.value} mode...")
+    logger.info(f"Configuration: {config}")
+
+    if config.transport == TransportMode.STDIO:
+        # Local mode: stdio transport
+        logger.info("Running in local mode (stdio transport)")
+        mcp.run(transport="stdio")
+    else:
+        # Remote mode: SSE transport with authentication
+        logger.info(f"Running in remote mode (SSE transport on {config.host}:{config.port})")
+        logger.info(f"Auth enabled: {config.auth_enabled}")
+        if config.allowed_email_domain:
+            logger.info(f"Allowed domain: {config.allowed_email_domain}")
+
+        # Initialize remote backend
+        from .remote_backend import get_remote_backend
+        try:
+            backend = get_remote_backend()
+            if backend.is_configured:
+                logger.info("Remote backend initialized successfully")
+                # Test connection
+                info = backend.get_info()
+                logger.info(f"Backend info: {info}")
+            else:
+                logger.warning("Remote backend not fully configured - missing service tokens")
+        except Exception as e:
+            logger.error(f"Failed to initialize remote backend: {e}")
+
+        # Initialize OAuth middleware if auth is enabled
+        auth_middleware = None
+        if config.auth_enabled:
+            from .auth import create_auth_middleware_from_config
+            auth_middleware = create_auth_middleware_from_config()
+            if auth_middleware:
+                logger.info("OAuth authentication enabled")
+            else:
+                logger.warning("Auth enabled but OAuth middleware not configured")
+
+        # For SSE mode, we need to use uvicorn directly with the FastMCP app
+        # since mcp.run() doesn't accept host/port parameters
+        import uvicorn
+        from mcp.server.sse import SseServerTransport
+        from starlette.applications import Starlette
+        from starlette.routing import Route, Mount
+        from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
+
+        # Create the SSE transport
+        sse = SseServerTransport("/messages/")
+
+        # Helper to verify JWT token from request
+        def get_user_from_token(request):
+            """Extract and verify user from JWT token."""
+            if not auth_middleware:
+                return None
+
+            # Try Authorization header
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+                if auth_middleware.verify_request(token):
+                    return auth_middleware.current_user
+
+            # Try cookie
+            token = request.cookies.get("notiondev_token")
+            if token and auth_middleware.verify_request(token):
+                return auth_middleware.current_user
+
+            # Try query parameter (for SSE connections)
+            token = request.query_params.get("token")
+            if token and auth_middleware.verify_request(token):
+                return auth_middleware.current_user
+
+            return None
+
+        # Create handler for SSE endpoint
+        async def handle_sse(request):
+            from .remote_backend import get_remote_backend
+
+            # If auth is enabled, verify the user
+            user = get_user_from_token(request)
+
+            if config.auth_enabled and not user:
+                # Redirect to login if not authenticated
+                return RedirectResponse(url="/auth/login", status_code=302)
+
+            # Set user context in backend
+            if user:
+                try:
+                    backend = get_remote_backend()
+                    remote_user = backend.set_current_user(user.email, user.name)
+                    logger.info(f"Set current user: {remote_user.email} (Asana: {remote_user.asana_user_gid})")
+                except Exception as e:
+                    logger.error(f"Failed to set user context: {e}")
+            else:
+                # Try headers/query params as fallback (for testing)
+                user_email = request.headers.get("x-user-email") or request.query_params.get("user_email")
+                user_name = request.headers.get("x-user-name", "Claude User")
+                if user_email:
+                    try:
+                        backend = get_remote_backend()
+                        remote_user = backend.set_current_user(user_email, user_name)
+                        logger.info(f"Set current user (fallback): {remote_user.email}")
+                    except Exception as e:
+                        logger.error(f"Failed to set user context: {e}")
+
+            async with sse.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await mcp._mcp_server.run(
+                    streams[0], streams[1], mcp._mcp_server.create_initialization_options()
+                )
+
+        # Create handler for messages endpoint
+        async def handle_messages(request):
+            await sse.handle_post_message(request.scope, request.receive, request._send)
+
+        # Create health check endpoint
+        async def health_check(request):
+            from .remote_backend import get_remote_backend
+            try:
+                backend = get_remote_backend()
+                info = backend.get_info()
+                return JSONResponse({
+                    "status": "ok",
+                    "server": "notiondev-mcp",
+                    "mode": "remote",
+                    "configured": info.get("configured", False),
+                    "asana_connected": info.get("asana", {}).get("connected", False),
+                    "auth_enabled": config.auth_enabled
+                })
+            except Exception as e:
+                return JSONResponse({
+                    "status": "ok",
+                    "server": "notiondev-mcp",
+                    "mode": "remote",
+                    "error": str(e)
+                })
+
+        # OAuth login page
+        async def auth_login(request):
+            if not auth_middleware:
+                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+
+            login_url = auth_middleware.get_login_url()
+            # Return a simple HTML page that redirects to Google
+            return HTMLResponse(f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>NotionDev - Login</title>
+                <meta http-equiv="refresh" content="0;url={login_url}">
+                <style>
+                    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                           display: flex; justify-content: center; align-items: center; height: 100vh;
+                           margin: 0; background: #f5f5f5; }}
+                    .container {{ text-align: center; padding: 40px; background: white; border-radius: 8px;
+                                 box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                    a {{ color: #4285f4; text-decoration: none; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h2>NotionDev MCP Server</h2>
+                    <p>Redirecting to Google login...</p>
+                    <p><a href="{login_url}">Click here if not redirected</a></p>
+                </div>
+            </body>
+            </html>
+            """)
+
+        # OAuth callback
+        async def auth_callback(request):
+            if not auth_middleware:
+                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+
+            code = request.query_params.get("code")
+            state = request.query_params.get("state")
+
+            if not code or not state:
+                return JSONResponse({"error": "Missing code or state"}, status_code=400)
+
+            try:
+                from .auth import OAuthError
+                token = await auth_middleware.handle_callback(code, state)
+
+                # Return HTML with token that can be used for SSE connection
+                return HTMLResponse(f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>NotionDev - Authenticated</title>
+                    <style>
+                        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                               display: flex; justify-content: center; align-items: center; height: 100vh;
+                               margin: 0; background: #f5f5f5; }}
+                        .container {{ text-align: center; padding: 40px; background: white; border-radius: 8px;
+                                     box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 600px; }}
+                        .token {{ background: #f0f0f0; padding: 10px; border-radius: 4px;
+                                 word-break: break-all; font-family: monospace; font-size: 12px;
+                                 margin: 20px 0; }}
+                        .success {{ color: #28a745; }}
+                        code {{ background: #e9ecef; padding: 2px 6px; border-radius: 3px; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h2 class="success">Authentication Successful!</h2>
+                        <p>Welcome to NotionDev MCP Server</p>
+                        <p>Your session token (valid for {config.jwt_expiration_hours} hour):</p>
+                        <div class="token">{token}</div>
+                        <p><strong>To use with Claude.ai:</strong></p>
+                        <p>Add the SSE URL with your token:</p>
+                        <code>/sse?token={token[:20]}...</code>
+                        <p style="margin-top: 20px; color: #666; font-size: 14px;">
+                            You can close this window and configure the MCP server in Claude.ai settings.
+                        </p>
+                    </div>
+                </body>
+                </html>
+                """, headers={"Set-Cookie": f"notiondev_token={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=3600"})
+
+            except Exception as e:
+                logger.error(f"OAuth callback error: {e}")
+                return HTMLResponse(f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>NotionDev - Error</title>
+                    <style>
+                        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                               display: flex; justify-content: center; align-items: center; height: 100vh;
+                               margin: 0; background: #f5f5f5; }}
+                        .container {{ text-align: center; padding: 40px; background: white; border-radius: 8px;
+                                     box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                        .error {{ color: #dc3545; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h2 class="error">Authentication Failed</h2>
+                        <p>{str(e)}</p>
+                        <p><a href="/auth/login">Try again</a></p>
+                    </div>
+                </body>
+                </html>
+                """, status_code=400)
+
+        # User info endpoint
+        async def auth_me(request):
+            user = get_user_from_token(request)
+            if user:
+                return JSONResponse(user.to_dict())
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+        # Build routes
+        routes = [
+            Route("/health", health_check, methods=["GET"]),
+            Route("/sse", handle_sse, methods=["GET"]),
+            Route("/messages/", handle_messages, methods=["POST"]),
+        ]
+
+        # Add auth routes if enabled
+        if config.auth_enabled:
+            routes.extend([
+                Route("/auth/login", auth_login, methods=["GET"]),
+                Route("/auth/callback", auth_callback, methods=["GET"]),
+                Route("/auth/me", auth_me, methods=["GET"]),
+            ])
+
+        # Create Starlette app with routes
+        app = Starlette(routes=routes)
+
+        # Run with uvicorn
+        uvicorn.run(app, host=config.host, port=config.port, log_level="info")
 
 
 if __name__ == "__main__":

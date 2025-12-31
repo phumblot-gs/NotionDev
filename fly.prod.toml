@@ -1,0 +1,48 @@
+# NOTION FEATURES: ND03
+# MODULES: NotionDev
+# DESCRIPTION: Fly.io PRODUCTION configuration for NotionDev MCP Server
+# LAST_SYNC: 2025-12-31
+
+app = "notiondev-prod"
+primary_region = "cdg"  # Paris
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  MCP_TRANSPORT = "sse"
+  MCP_PORT = "8000"
+  MCP_AUTH_ENABLED = "true"
+  REPOS_CACHE_DIR = "/data/repos"
+  REPOS_CACHE_TTL_HOURS = "1"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "suspend"  # Suspend instead of stop for faster restart
+  auto_start_machines = true
+  min_machines_running = 1  # Keep one machine always running
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 200
+    soft_limit = 150
+
+# Health check endpoint
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "60s"
+  method = "GET"
+  path = "/health"
+  timeout = "10s"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 2
+
+[mounts]
+  source = "notiondev_repos_prod"
+  destination = "/data/repos"
+  initial_size = "5gb"

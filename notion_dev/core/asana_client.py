@@ -403,6 +403,39 @@ class AsanaClient:
             logger.error(f"Error updating task {task_gid}: {e}")
             return None
 
+    def get_workspace_users(self) -> List[Dict[str, Any]]:
+        """Get all users in the workspace.
+
+        Returns:
+            List of user dicts with 'gid', 'name', 'email' keys
+        """
+        try:
+            endpoint = f"workspaces/{self.workspace_gid}/users"
+            params = {
+                'opt_fields': 'gid,name,email'
+            }
+            response = self._make_request("GET", endpoint, params=params)
+            return response.get('data', [])
+        except Exception as e:
+            logger.error(f"Error fetching workspace users: {e}")
+            return []
+
+    def find_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Find a user in the workspace by email address.
+
+        Args:
+            email: Email address to search for
+
+        Returns:
+            User dict with 'gid', 'name', 'email' or None if not found
+        """
+        email_lower = email.lower()
+        users = self.get_workspace_users()
+        for user in users:
+            if user.get('email', '').lower() == email_lower:
+                return user
+        return None
+
     def test_connection(self) -> Dict[str, Any]:
         """Test connection to Asana API and validate access.
 

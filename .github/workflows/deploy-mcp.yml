@@ -1,0 +1,76 @@
+# NOTION FEATURES: ND03
+# MODULES: NotionDev
+# DESCRIPTION: GitHub Actions workflow for deploying MCP Server to fly.io
+# LAST_SYNC: 2025-12-31
+
+name: Deploy MCP Server
+
+on:
+  push:
+    branches:
+      - staging
+      - production
+
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run tests
+        run: |
+          pip install -e ".[dev]"
+          pytest tests/unit -v
+
+      - name: Setup Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Determine environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "app_name=notiondev-staging" >> $GITHUB_OUTPUT
+            echo "config_file=fly.toml" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/production" ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "app_name=notiondev-prod" >> $GITHUB_OUTPUT
+            echo "config_file=fly.prod.toml" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to ${{ steps.env.outputs.environment }}
+        run: |
+          flyctl deploy \
+            --config ${{ steps.env.outputs.config_file }} \
+            --app ${{ steps.env.outputs.app_name }} \
+            --remote-only
+
+      - name: Verify deployment
+        run: |
+          flyctl status --app ${{ steps.env.outputs.app_name }}
+
+      - name: Post deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **App**: ${{ steps.env.outputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
+            echo "🔗 **URL**: https://notiondev-staging.grand-shooting.com" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🔗 **URL**: https://notiondev.grand-shooting.com" >> $GITHUB_STEP_SUMMARY
+          fi
