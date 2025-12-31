@@ -1863,25 +1863,45 @@ def main():
 
         # Helper to verify JWT token from request
         def get_user_from_token(request):
-            """Extract and verify user from JWT token."""
-            if not auth_middleware:
-                return None
+            """Extract and verify user from JWT token.
 
-            # Try Authorization header
+            Supports both:
+            - Legacy auth middleware tokens
+            - New OAuth server tokens (RFC 8414)
+            """
+            token = None
+
+            # Try Authorization header (RFC 6750)
             auth_header = request.headers.get("authorization", "")
             if auth_header.startswith("Bearer "):
                 token = auth_header[7:]
-                if auth_middleware.verify_request(token):
-                    return auth_middleware.current_user
 
-            # Try cookie
-            token = request.cookies.get("notiondev_token")
-            if token and auth_middleware.verify_request(token):
-                return auth_middleware.current_user
+            # Try cookie (legacy)
+            if not token:
+                token = request.cookies.get("notiondev_token")
 
             # Try query parameter (for SSE connections)
-            token = request.query_params.get("token")
-            if token and auth_middleware.verify_request(token):
+            if not token:
+                token = request.query_params.get("token")
+
+            if not token:
+                return None
+
+            # Try new OAuth server first (if available)
+            from .oauth_server import get_oauth_server
+            oauth = get_oauth_server()
+            if oauth:
+                user_info = oauth.verify_access_token(token)
+                if user_info:
+                    # Return a UserInfo-like object
+                    from .auth import UserInfo
+                    return UserInfo(
+                        email=user_info["email"],
+                        name=user_info["name"],
+                    )
+
+            # Fall back to legacy auth middleware
+            if auth_middleware and auth_middleware.verify_request(token):
                 return auth_middleware.current_user
 
             return None
@@ -2066,6 +2086,218 @@ def main():
                 return JSONResponse(user.to_dict())
             return JSONResponse({"error": "Not authenticated"}, status_code=401)
 
+        # =====================================================================
+        # OAuth 2.0 endpoints (RFC 8414, RFC 7591) for Claude.ai compatibility
+        # =====================================================================
+
+        # Initialize OAuth server if auth is enabled
+        oauth_server = None
+        if config.auth_enabled:
+            from .oauth_server import init_oauth_server, get_oauth_server
+
+            # Determine base URL
+            base_url = os.environ.get("MCP_BASE_URL", f"http://localhost:{config.port}")
+
+            oauth_server = init_oauth_server(
+                issuer=base_url,
+                jwt_secret=config.jwt_secret,
+                google_client_id=config.google_client_id,
+                google_client_secret=config.google_client_secret,
+                allowed_domain=config.allowed_email_domain,
+                allowed_emails=config.allowed_emails,
+                token_expiration_seconds=config.jwt_expiration_hours * 3600,
+            )
+            logger.info(f"OAuth server initialized with issuer: {base_url}")
+
+        # OAuth metadata endpoint (RFC 8414)
+        async def oauth_metadata(request):
+            if not oauth_server:
+                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+            return JSONResponse(oauth_server.get_metadata())
+
+        # Protected resource metadata
+        async def oauth_protected_resource(request):
+            if not oauth_server:
+                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+            return JSONResponse(oauth_server.get_protected_resource_metadata())
+
+        # Dynamic client registration (RFC 7591)
+        async def oauth_register(request):
+            if not oauth_server:
+                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+
+            try:
+                body = await request.json()
+                result = oauth_server.register_client(body)
+                return JSONResponse(result, status_code=201)
+            except json.JSONDecodeError:
+                return JSONResponse({"error": "invalid_request", "error_description": "Invalid JSON"}, status_code=400)
+            except ValueError as e:
+                return JSONResponse({"error": "invalid_client_metadata", "error_description": str(e)}, status_code=400)
+            except Exception as e:
+                logger.error(f"Registration error: {e}")
+                return JSONResponse({"error": "server_error", "error_description": str(e)}, status_code=500)
+
+        # Authorization endpoint
+        async def oauth_authorize(request):
+            if not oauth_server:
+                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+
+            try:
+                # Get query parameters
+                client_id = request.query_params.get("client_id")
+                redirect_uri = request.query_params.get("redirect_uri")
+                scope = request.query_params.get("scope", "mcp:tools")
+                state = request.query_params.get("state")
+                code_challenge = request.query_params.get("code_challenge")
+                code_challenge_method = request.query_params.get("code_challenge_method", "S256")
+                response_type = request.query_params.get("response_type")
+
+                if response_type != "code":
+                    return JSONResponse({
+                        "error": "unsupported_response_type",
+                        "error_description": "Only 'code' response_type is supported"
+                    }, status_code=400)
+
+                if not all([client_id, redirect_uri, code_challenge]):
+                    return JSONResponse({
+                        "error": "invalid_request",
+                        "error_description": "Missing required parameters"
+                    }, status_code=400)
+
+                # Create Google OAuth URL
+                auth_url = oauth_server.create_authorization_url(
+                    client_id=client_id,
+                    redirect_uri=redirect_uri,
+                    scope=scope,
+                    state=state or "",
+                    code_challenge=code_challenge,
+                    code_challenge_method=code_challenge_method,
+                )
+
+                return RedirectResponse(url=auth_url, status_code=302)
+
+            except ValueError as e:
+                error_msg = str(e)
+                if "invalid_client" in error_msg:
+                    return JSONResponse({"error": "invalid_client"}, status_code=401)
+                elif "invalid_redirect_uri" in error_msg:
+                    return JSONResponse({"error": "invalid_redirect_uri"}, status_code=400)
+                else:
+                    return JSONResponse({"error": "invalid_request", "error_description": error_msg}, status_code=400)
+            except Exception as e:
+                logger.error(f"Authorization error: {e}")
+                return JSONResponse({"error": "server_error"}, status_code=500)
+
+        # Google OAuth callback (internal)
+        async def oauth_google_callback(request):
+            if not oauth_server:
+                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+
+            code = request.query_params.get("code")
+            state = request.query_params.get("state")
+            error = request.query_params.get("error")
+
+            if error:
+                logger.error(f"Google OAuth error: {error}")
+                return HTMLResponse(f"""
+                <!DOCTYPE html>
+                <html>
+                <head><title>Authentication Failed</title></head>
+                <body>
+                    <h1>Authentication Failed</h1>
+                    <p>Error: {error}</p>
+                </body>
+                </html>
+                """, status_code=400)
+
+            if not code or not state:
+                return JSONResponse({"error": "invalid_request"}, status_code=400)
+
+            try:
+                redirect_url = await oauth_server.handle_google_callback(code, state)
+                return RedirectResponse(url=redirect_url, status_code=302)
+
+            except ValueError as e:
+                error_msg = str(e)
+                logger.error(f"Google callback error: {error_msg}")
+
+                # Show user-friendly error page
+                if "domain_not_allowed" in error_msg:
+                    message = "Your email domain is not authorized to access this application."
+                elif "email_not_allowed" in error_msg:
+                    message = "Your email address is not authorized to access this application."
+                else:
+                    message = f"Authentication failed: {error_msg}"
+
+                return HTMLResponse(f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Authentication Failed</title>
+                    <style>
+                        body {{ font-family: -apple-system, sans-serif; display: flex;
+                               justify-content: center; align-items: center; height: 100vh;
+                               margin: 0; background: #f5f5f5; }}
+                        .container {{ text-align: center; padding: 40px; background: white;
+                                     border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                        .error {{ color: #dc3545; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h2 class="error">Authentication Failed</h2>
+                        <p>{message}</p>
+                    </div>
+                </body>
+                </html>
+                """, status_code=403)
+            except Exception as e:
+                logger.error(f"Unexpected error in Google callback: {e}")
+                return JSONResponse({"error": "server_error"}, status_code=500)
+
+        # Token endpoint
+        async def oauth_token(request):
+            if not oauth_server:
+                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+
+            try:
+                # Parse form data
+                form = await request.form()
+                grant_type = form.get("grant_type")
+                code = form.get("code")
+                redirect_uri = form.get("redirect_uri")
+                client_id = form.get("client_id")
+                code_verifier = form.get("code_verifier")
+
+                if not all([grant_type, code, redirect_uri, client_id, code_verifier]):
+                    return JSONResponse({
+                        "error": "invalid_request",
+                        "error_description": "Missing required parameters"
+                    }, status_code=400)
+
+                result = oauth_server.exchange_code_for_token(
+                    grant_type=grant_type,
+                    code=code,
+                    redirect_uri=redirect_uri,
+                    client_id=client_id,
+                    code_verifier=code_verifier,
+                )
+
+                return JSONResponse(result)
+
+            except ValueError as e:
+                error_msg = str(e)
+                if "invalid_grant" in error_msg:
+                    return JSONResponse({"error": "invalid_grant", "error_description": error_msg}, status_code=400)
+                elif "unsupported_grant_type" in error_msg:
+                    return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+                else:
+                    return JSONResponse({"error": "invalid_request", "error_description": error_msg}, status_code=400)
+            except Exception as e:
+                logger.error(f"Token error: {e}")
+                return JSONResponse({"error": "server_error"}, status_code=500)
+
         # Build routes
         routes = [
             Route("/health", health_check, methods=["GET"]),
@@ -2073,9 +2305,21 @@ def main():
             Route("/messages/", handle_messages, methods=["POST"]),
         ]
 
-        # Add auth routes if enabled
+        # Add OAuth 2.0 routes (required by Claude.ai)
         if config.auth_enabled:
             routes.extend([
+                # OAuth 2.0 metadata (RFC 8414)
+                Route("/.well-known/oauth-authorization-server", oauth_metadata, methods=["GET"]),
+                Route("/.well-known/oauth-authorization-server/sse", oauth_metadata, methods=["GET"]),
+                Route("/.well-known/oauth-protected-resource", oauth_protected_resource, methods=["GET"]),
+                Route("/.well-known/oauth-protected-resource/sse", oauth_protected_resource, methods=["GET"]),
+                # Dynamic Client Registration (RFC 7591)
+                Route("/register", oauth_register, methods=["POST"]),
+                # Authorization flow
+                Route("/authorize", oauth_authorize, methods=["GET"]),
+                Route("/oauth/google/callback", oauth_google_callback, methods=["GET"]),
+                Route("/token", oauth_token, methods=["POST"]),
+                # Legacy auth routes (kept for backwards compatibility)
                 Route("/auth/login", auth_login, methods=["GET"]),
                 Route("/auth/callback", auth_callback, methods=["GET"]),
                 Route("/auth/me", auth_me, methods=["GET"]),
