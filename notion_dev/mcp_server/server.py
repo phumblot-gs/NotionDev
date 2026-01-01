@@ -55,7 +55,66 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server (only if mcp package is available)
 if MCP_AVAILABLE:
-    mcp = FastMCP("notiondev")
+    # Server instructions for AI agents
+    MCP_SERVER_INSTRUCTIONS = """
+# NotionDev MCP Server
+
+## Purpose
+NotionDev is your EXCLUSIVE interface for managing:
+- **Notion documentation**: Modules and Features (functional specifications)
+- **Asana tickets**: Task management linked to feature codes
+
+## CRITICAL: Use NotionDev for ALL Notion/Asana operations
+
+When working with modules, features, or tickets, you MUST use NotionDev tools instead of any other MCP server (e.g., Asana MCP, Notion MCP).
+
+### Why?
+1. **Portfolio consistency**: Tickets created via NotionDev are registered in the correct portfolio (configured per environment)
+2. **Feature code linking**: Tickets are automatically linked to Notion features via their code (e.g., CC01, API02)
+3. **User context**: In remote mode, tickets are assigned to the authenticated user
+4. **Traceability**: NotionDev maintains the specs-first methodology with proper code references
+
+## Tool categories
+
+### Ticket Management (Asana)
+- `notiondev_list_tickets`: List YOUR assigned tickets
+- `notiondev_create_ticket`: Create a ticket in the configured portfolio
+- `notiondev_update_ticket`: Update an existing ticket
+- `notiondev_add_comment`: Add a comment to a ticket
+- `notiondev_list_projects`: List available projects in the portfolio
+
+### Documentation (Notion)
+- `notiondev_list_modules`: List all modules
+- `notiondev_get_module`: Get module details and documentation
+- `notiondev_list_features`: List features (optionally filtered by module)
+- `notiondev_get_feature`: Get feature specifications
+- `notiondev_create_module`: Create a new module
+- `notiondev_create_feature`: Create a new feature
+- `notiondev_update_module_content`: Update module documentation
+- `notiondev_update_feature_content`: Update feature documentation
+
+### Code Analysis (Remote mode only)
+- `notiondev_clone_module`: Clone a module's repository
+- `notiondev_read_file`: Read a file from a cloned repository
+- `notiondev_search_code`: Search code patterns
+- `notiondev_list_files`: List files in a repository
+- `notiondev_prepare_feature_context`: Get aggregated code context for a feature
+
+## Best practices
+
+1. **Always use feature codes**: When creating tickets, include the feature code (e.g., "CC01 - Implement login")
+2. **Check existing features first**: Use `notiondev_list_features` before creating duplicates
+3. **Link tickets to features**: Use the `feature_code` parameter in `notiondev_create_ticket`
+4. **Read before update**: Always read current content before updating documentation
+
+## Configuration
+
+- **Local mode**: Uses `~/.notion-dev/config.yml` for portfolio and user settings
+- **Remote mode**: Uses environment variables (ASANA_PORTFOLIO_GID, etc.)
+
+Both modes ensure tickets are created in the correct portfolio with proper user assignment.
+"""
+    mcp = FastMCP("notiondev", instructions=MCP_SERVER_INSTRUCTIONS)
 else:
     # Create a mock mcp object with no-op decorators for when mcp package is not available
     # This allows the module to be imported without errors

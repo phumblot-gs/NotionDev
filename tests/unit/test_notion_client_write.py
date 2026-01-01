@@ -93,21 +93,35 @@ class TestMarkdownToBlocks:
         assert block["numbered_list_item"]["rich_text"][0]["text"]["content"] == "Step one"
 
     def test_create_code_block(self, client):
-        """Test code block creation."""
-        block = client._create_code_block("print('hello')", "python")
+        """Test code block creation (returns a list for long content support)."""
+        blocks = client._create_code_block("print('hello')", "python")
+        assert isinstance(blocks, list)
+        assert len(blocks) == 1
+        block = blocks[0]
         assert block["type"] == "code"
         assert block["code"]["language"] == "python"
         assert block["code"]["rich_text"][0]["text"]["content"] == "print('hello')"
 
     def test_create_code_block_language_mapping(self, client):
         """Test code block language mapping."""
-        block_py = client._create_code_block("code", "py")
-        block_js = client._create_code_block("code", "js")
-        block_sh = client._create_code_block("code", "sh")
+        blocks_py = client._create_code_block("code", "py")
+        blocks_js = client._create_code_block("code", "js")
+        blocks_sh = client._create_code_block("code", "sh")
 
-        assert block_py["code"]["language"] == "python"
-        assert block_js["code"]["language"] == "javascript"
-        assert block_sh["code"]["language"] == "bash"
+        assert blocks_py[0]["code"]["language"] == "python"
+        assert blocks_js[0]["code"]["language"] == "javascript"
+        assert blocks_sh[0]["code"]["language"] == "bash"
+
+    def test_create_code_block_splits_long_content(self, client):
+        """Test that long code content is split into multiple blocks."""
+        # Create code longer than 2000 characters
+        long_code = "x = 1\n" * 500  # ~3000 characters
+        blocks = client._create_code_block(long_code, "python")
+        assert len(blocks) >= 2
+        for block in blocks:
+            assert block["type"] == "code"
+            assert block["code"]["language"] == "python"
+            assert len(block["code"]["rich_text"][0]["text"]["content"]) <= 2000
 
     def test_create_quote_block(self, client):
         """Test quote block creation."""

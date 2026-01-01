@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Constants for batch operations
 NOTION_MAX_BLOCKS_PER_REQUEST = 100
+NOTION_MAX_RICH_TEXT_LENGTH = 2000  # Notion API limit per rich_text element
 
 class NotionClient:
     def __init__(self, token: str, modules_db_id: str, features_db_id: str):
@@ -386,7 +387,8 @@ class NotionClient:
                 while i < len(lines) and not lines[i].strip().startswith('```'):
                     code_lines.append(lines[i])
                     i += 1
-                blocks.append(self._create_code_block('\n'.join(code_lines), language))
+                # _create_code_block returns a list (may split long code)
+                blocks.extend(self._create_code_block('\n'.join(code_lines), language))
                 i += 1
                 continue
 
@@ -454,10 +456,52 @@ class NotionClient:
 
         return blocks
 
+    def _split_text_for_notion(
+        self,
+        content: str,
+        annotations: Dict[str, Any] = None,
+        link: Dict[str, str] = None
+    ) -> List[Dict[str, Any]]:
+        """Split text into chunks respecting Notion's 2000 character limit.
+
+        Args:
+            content: Text content to split
+            annotations: Optional formatting annotations (bold, italic, code, etc.)
+            link: Optional link dict {'url': '...'}
+
+        Returns:
+            List of rich_text elements, each under 2000 characters
+        """
+        chunks = []
+        max_len = NOTION_MAX_RICH_TEXT_LENGTH
+
+        while content:
+            if len(content) <= max_len:
+                chunk = content
+                content = ""
+            else:
+                # Try to split at a space to avoid breaking words
+                split_pos = content.rfind(' ', 0, max_len)
+                if split_pos <= 0:
+                    # No space found, split at max_len
+                    split_pos = max_len
+                chunk = content[:split_pos]
+                content = content[split_pos:].lstrip()
+
+            element = {'type': 'text', 'text': {'content': chunk}}
+            if annotations:
+                element['annotations'] = annotations
+            if link:
+                element['text']['link'] = link
+            chunks.append(element)
+
+        return chunks
+
     def _parse_rich_text(self, text: str) -> List[Dict[str, Any]]:
         """Parse markdown inline formatting to Notion rich_text array.
 
         Supports: **bold**, *italic*, `code`, [links](url)
+        Handles text longer than 2000 characters by splitting into chunks.
         """
         rich_text = []
 
@@ -471,44 +515,40 @@ class NotionClient:
             if match.start() > last_end:
                 plain = text[last_end:match.start()]
                 if plain:
-                    rich_text.append({'type': 'text', 'text': {'content': plain}})
+                    rich_text.extend(self._split_text_for_notion(plain))
 
             full_match = match.group(0)
 
             # Bold + Italic (***text***)
             if match.group(2):
-                rich_text.append({
-                    'type': 'text',
-                    'text': {'content': match.group(2)},
-                    'annotations': {'bold': True, 'italic': True}
-                })
+                rich_text.extend(self._split_text_for_notion(
+                    match.group(2),
+                    annotations={'bold': True, 'italic': True}
+                ))
             # Bold (**text**)
             elif match.group(3):
-                rich_text.append({
-                    'type': 'text',
-                    'text': {'content': match.group(3)},
-                    'annotations': {'bold': True}
-                })
+                rich_text.extend(self._split_text_for_notion(
+                    match.group(3),
+                    annotations={'bold': True}
+                ))
             # Italic (*text*)
             elif match.group(4):
-                rich_text.append({
-                    'type': 'text',
-                    'text': {'content': match.group(4)},
-                    'annotations': {'italic': True}
-                })
+                rich_text.extend(self._split_text_for_notion(
+                    match.group(4),
+                    annotations={'italic': True}
+                ))
             # Code (`text`)
             elif match.group(5):
-                rich_text.append({
-                    'type': 'text',
-                    'text': {'content': match.group(5)},
-                    'annotations': {'code': True}
-                })
+                rich_text.extend(self._split_text_for_notion(
+                    match.group(5),
+                    annotations={'code': True}
+                ))
             # Link ([text](url))
             elif match.group(6) and match.group(7):
-                rich_text.append({
-                    'type': 'text',
-                    'text': {'content': match.group(6), 'link': {'url': match.group(7)}}
-                })
+                rich_text.extend(self._split_text_for_notion(
+                    match.group(6),
+                    link={'url': match.group(7)}
+                ))
 
             last_end = match.end()
 
@@ -516,11 +556,11 @@ class NotionClient:
         if last_end < len(text):
             remaining = text[last_end:]
             if remaining:
-                rich_text.append({'type': 'text', 'text': {'content': remaining}})
+                rich_text.extend(self._split_text_for_notion(remaining))
 
-        # If no formatting found, return simple text
+        # If no formatting found, return simple text (with splitting)
         if not rich_text:
-            rich_text.append({'type': 'text', 'text': {'content': text}})
+            rich_text.extend(self._split_text_for_notion(text))
 
         return rich_text
 
@@ -557,8 +597,11 @@ class NotionClient:
             'numbered_list_item': {'rich_text': self._parse_rich_text(text)}
         }
 
-    def _create_code_block(self, code: str, language: str = 'plain text') -> Dict[str, Any]:
-        """Create a code block."""
+    def _create_code_block(self, code: str, language: str = 'plain text') -> List[Dict[str, Any]]:
+        """Create code block(s), splitting if content exceeds 2000 characters.
+
+        Returns a list of code blocks to handle long code content.
+        """
         # Notion has specific language identifiers
         language_map = {
             'python': 'python',
@@ -585,14 +628,41 @@ class NotionClient:
         }
         notion_lang = language_map.get(language.lower(), 'plain text')
 
-        return {
+        # Split code into chunks if too long
+        blocks = []
+        max_len = NOTION_MAX_RICH_TEXT_LENGTH
+        remaining = code
+
+        while remaining:
+            if len(remaining) <= max_len:
+                chunk = remaining
+                remaining = ""
+            else:
+                # Try to split at a newline to keep code readable
+                split_pos = remaining.rfind('\n', 0, max_len)
+                if split_pos <= 0:
+                    # No newline found, split at max_len
+                    split_pos = max_len
+                chunk = remaining[:split_pos]
+                remaining = remaining[split_pos:].lstrip('\n')
+
+            blocks.append({
+                'object': 'block',
+                'type': 'code',
+                'code': {
+                    'rich_text': [{'type': 'text', 'text': {'content': chunk}}],
+                    'language': notion_lang
+                }
+            })
+
+        return blocks if blocks else [{
             'object': 'block',
             'type': 'code',
             'code': {
-                'rich_text': [{'type': 'text', 'text': {'content': code}}],
+                'rich_text': [{'type': 'text', 'text': {'content': ''}}],
                 'language': notion_lang
             }
-        }
+        }]
 
     def _create_quote_block(self, text: str) -> Dict[str, Any]:
         """Create a quote block."""
