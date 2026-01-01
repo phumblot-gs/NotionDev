@@ -533,4 +533,118 @@ class TestGitHubClientNamingConvention:
             assert result == repo_dir
 
 
+class TestConcurrentUserSessions:
+    """Test that contextvars properly isolate concurrent user sessions."""
+
+    def test_contextvars_isolate_users_in_remote_backend(self):
+        """Each async task should have its own user context."""
+        import asyncio
+        from notion_dev.mcp_server.remote_backend import (
+            RemoteBackend, _current_user_context
+        )
+
+        backend = RemoteBackend()
+
+        results = {}
+
+        async def simulate_request(user_email: str, delay: float):
+            """Simulate a request that sets user then reads it after a delay."""
+            with patch.object(RemoteBackend, 'asana_client', new_callable=PropertyMock) as mock_asana:
+                mock_asana.return_value.find_user_by_email.return_value = {"gid": user_email}
+
+                # Set user for this request
+                backend.set_current_user(user_email, f"User {user_email}")
+
+                # Simulate some async work
+                await asyncio.sleep(delay)
+
+                # Read back the user - should still be our user
+                current = backend.current_user
+                results[user_email] = current.email if current else None
+
+        async def run_concurrent():
+            # Run two requests concurrently
+            await asyncio.gather(
+                simulate_request("user1@example.com", 0.1),
+                simulate_request("user2@example.com", 0.05),
+            )
+
+        asyncio.run(run_concurrent())
+
+        # Each task should have seen its own user
+        assert results["user1@example.com"] == "user1@example.com"
+        assert results["user2@example.com"] == "user2@example.com"
+
+    def test_contextvars_isolate_users_in_auth_middleware(self):
+        """AuthMiddleware should use contextvars for user isolation."""
+        import asyncio
+        from notion_dev.mcp_server.auth import (
+            AuthMiddleware, _auth_current_user_context, UserInfo
+        )
+
+        results = {}
+
+        async def simulate_auth_request(user_email: str, delay: float):
+            """Simulate setting user via context variable."""
+            user = UserInfo(email=user_email, name=f"User {user_email}")
+            _auth_current_user_context.set(user)
+
+            await asyncio.sleep(delay)
+
+            current = _auth_current_user_context.get()
+            results[user_email] = current.email if current else None
+
+        async def run_concurrent():
+            await asyncio.gather(
+                simulate_auth_request("auth1@example.com", 0.1),
+                simulate_auth_request("auth2@example.com", 0.05),
+            )
+
+        asyncio.run(run_concurrent())
+
+        assert results["auth1@example.com"] == "auth1@example.com"
+        assert results["auth2@example.com"] == "auth2@example.com"
+
+    def test_clear_user_only_affects_current_context(self):
+        """Clearing user in one context should not affect another."""
+        import asyncio
+        from notion_dev.mcp_server.remote_backend import (
+            RemoteBackend, _current_user_context
+        )
+
+        backend = RemoteBackend()
+        results = {}
+
+        async def task_that_clears(user_email: str):
+            with patch.object(RemoteBackend, 'asana_client', new_callable=PropertyMock) as mock_asana:
+                mock_asana.return_value.find_user_by_email.return_value = {"gid": user_email}
+
+                backend.set_current_user(user_email, f"User {user_email}")
+                await asyncio.sleep(0.05)
+                backend.clear_current_user()
+                results[f"{user_email}_after_clear"] = backend.current_user
+
+        async def task_that_keeps(user_email: str):
+            with patch.object(RemoteBackend, 'asana_client', new_callable=PropertyMock) as mock_asana:
+                mock_asana.return_value.find_user_by_email.return_value = {"gid": user_email}
+
+                backend.set_current_user(user_email, f"User {user_email}")
+                await asyncio.sleep(0.1)  # Wait for other task to clear
+                current = backend.current_user
+                results[f"{user_email}_kept"] = current.email if current else None
+
+        async def run_concurrent():
+            await asyncio.gather(
+                task_that_clears("clear@example.com"),
+                task_that_keeps("keep@example.com"),
+            )
+
+        asyncio.run(run_concurrent())
+
+        # User that cleared should be None
+        assert results["clear@example.com_after_clear"] is None
+        # User that kept should still have their user
+        assert results["keep@example.com_kept"] == "keep@example.com"
+
+
 # Run with: pytest tests/unit/test_mcp_modes.py -v

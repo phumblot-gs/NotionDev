@@ -7,11 +7,18 @@ LAST_SYNC: 2025-12-31
 
 import os
 import logging
+from contextvars import ContextVar
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+
+# Context variable for current user - isolated per async task/request
+# This ensures each SSE connection has its own user context
+_current_user_context: ContextVar[Optional["RemoteUser"]] = ContextVar(
+    "current_user_context", default=None
+)
 
 
 @dataclass
@@ -49,11 +56,12 @@ class RemoteBackend:
         self._asana_client = None
         self._notion_client = None
 
-        # User cache: email -> RemoteUser
+        # User cache: email -> RemoteUser (shared across all sessions for efficiency)
         self._user_cache: Dict[str, RemoteUser] = {}
 
-        # Current user context (set per-request)
-        self._current_user: Optional[RemoteUser] = None
+        # NOTE: Current user is now stored in _current_user_context (ContextVar)
+        # to ensure isolation between concurrent SSE connections.
+        # The old self._current_user is removed.
 
         # Asana workspace and portfolio from environment
         self._workspace_gid = os.environ.get("ASANA_WORKSPACE_GID", "")
@@ -105,6 +113,9 @@ class RemoteBackend:
     def set_current_user(self, email: str, name: str) -> RemoteUser:
         """Set the current user context from OAuth.
 
+        This uses a ContextVar to ensure isolation between concurrent
+        SSE connections. Each async task/request gets its own user context.
+
         Args:
             email: User's email from OAuth
             name: User's display name from OAuth
@@ -112,11 +123,12 @@ class RemoteBackend:
         Returns:
             RemoteUser with resolved Asana identity (if found)
         """
-        # Check cache first
+        # Check cache first (shared cache is fine - it's read-only user data)
         if email in self._user_cache:
-            self._current_user = self._user_cache[email]
-            logger.info(f"Using cached user: {email} -> {self._current_user.asana_user_gid}")
-            return self._current_user
+            user = self._user_cache[email]
+            _current_user_context.set(user)
+            logger.info(f"Using cached user: {email} -> {user.asana_user_gid}")
+            return user
 
         # Create new user and try to resolve Asana identity
         user = RemoteUser(email=email, name=name)
@@ -131,38 +143,46 @@ class RemoteBackend:
         except Exception as e:
             logger.error(f"Error resolving Asana user for {email}: {e}")
 
-        # Cache and set as current
+        # Cache for future requests and set in current context
         self._user_cache[email] = user
-        self._current_user = user
+        _current_user_context.set(user)
         return user
 
     def clear_current_user(self):
-        """Clear the current user context."""
-        self._current_user = None
+        """Clear the current user context for this async task."""
+        _current_user_context.set(None)
 
     @property
     def current_user(self) -> Optional[RemoteUser]:
-        """Get the current user context."""
-        return self._current_user
+        """Get the current user context for this async task.
+
+        Returns the user set by set_current_user() in the current
+        async context. Different SSE connections will have different users.
+        """
+        return _current_user_context.get()
 
     def get_asana_client_for_user(self):
         """Get an Asana client configured for the current user.
 
         Returns:
             AsanaClient with user_gid set to current user's Asana ID
-        """
-        if not self._current_user:
-            raise RuntimeError("No current user context")
 
-        if not self._current_user.asana_user_gid:
-            raise RuntimeError(f"User {self._current_user.email} has no Asana identity")
+        Raises:
+            RuntimeError: If no user context is set or user has no Asana identity
+        """
+        current_user = self.current_user
+        if not current_user:
+            raise RuntimeError("No current user context - call set_current_user() first")
+
+        if not current_user.asana_user_gid:
+            raise RuntimeError(f"User {current_user.email} has no Asana identity")
 
         from ..core.asana_client import AsanaClient
 
         return AsanaClient(
             access_token=self._asana_token,
             workspace_gid=self._workspace_gid,
-            user_gid=self._current_user.asana_user_gid,
+            user_gid=current_user.asana_user_gid,
             portfolio_gid=self._portfolio_gid or None
         )
 
@@ -263,7 +283,8 @@ class RemoteBackend:
         Returns:
             Created ticket dict or None
         """
-        if not self._current_user or not self._current_user.asana_user_gid:
+        current_user = self.current_user
+        if not current_user or not current_user.asana_user_gid:
             logger.error("Cannot create ticket: no current user")
             return None
 
@@ -275,7 +296,7 @@ class RemoteBackend:
             name=name,
             notes=notes,
             project_gid=project_gid,
-            assignee_gid=self._current_user.asana_user_gid,
+            assignee_gid=current_user.asana_user_gid,
             due_on=due_on
         )
 
@@ -335,12 +356,13 @@ class RemoteBackend:
             "configured": self.is_configured,
         }
 
-        if self._current_user:
+        current_user = self.current_user
+        if current_user:
             info["user"] = {
-                "email": self._current_user.email,
-                "name": self._current_user.name,
-                "asana_resolved": self._current_user.is_resolved,
-                "asana_user_gid": self._current_user.asana_user_gid,
+                "email": current_user.email,
+                "name": current_user.name,
+                "asana_resolved": current_user.is_resolved,
+                "asana_user_gid": current_user.asana_user_gid,
             }
 
         # Test connections
@@ -481,15 +503,23 @@ class RemoteBackend:
                     "clone": {
                         "path": result["path"],
                         "code_path": code_path
-                    }
+                    },
+                    "important": (
+                        "The repository is cloned on the MCP server, NOT in your local environment. "
+                        "You CANNOT access it via shell/bash commands. "
+                        "Use these NotionDev tools to interact with the code:"
+                    ),
+                    "available_tools": [
+                        "notiondev_list_files - List files in the repository",
+                        "notiondev_read_file - Read file contents",
+                        "notiondev_search_code - Search for patterns in code",
+                        "notiondev_prepare_feature_context - Get aggregated context for a feature"
+                    ]
                 }
 
                 if code_path:
                     full_code_path = os.path.join(result["path"], code_path)
                     response["clone"]["full_code_path"] = full_code_path
-                    response["hint"] = f"Code is located at: {full_code_path}"
-                else:
-                    response["hint"] = f"Repository cloned to: {result['path']}"
 
                 return response
             else:
@@ -547,7 +577,12 @@ class RemoteBackend:
                 "remote_url": info["remote_url"],
                 "last_commit": info["last_commit"],
                 "code_path": module.get("code_path"),
-            }
+            },
+            "note": (
+                "This path is on the MCP server. Use notiondev_list_files, "
+                "notiondev_read_file, or notiondev_search_code to access code. "
+                "Shell/bash commands will NOT work."
+            )
         }
 
     # =========================================================================

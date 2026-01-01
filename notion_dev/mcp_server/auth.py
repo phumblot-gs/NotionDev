@@ -12,6 +12,7 @@ import time
 import logging
 import hashlib
 import secrets
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -332,6 +333,12 @@ class JWTManager:
         return None
 
 
+# Context variable for per-request user isolation in async environments
+_auth_current_user_context: ContextVar[Optional[UserInfo]] = ContextVar(
+    "auth_current_user_context", default=None
+)
+
+
 class AuthMiddleware:
     """Authentication middleware for the MCP server.
 
@@ -339,6 +346,8 @@ class AuthMiddleware:
     - OAuth login flow
     - JWT token verification
     - User context injection
+
+    Note: Uses contextvars for async-safe per-request user isolation.
     """
 
     def __init__(
@@ -371,13 +380,12 @@ class AuthMiddleware:
             secret=jwt_secret,
             expiration_hours=jwt_expiration_hours,
         )
-
-        self._current_user: Optional[UserInfo] = None
+        # Note: _current_user is removed in favor of contextvars
 
     @property
     def current_user(self) -> Optional[UserInfo]:
-        """Get the current authenticated user."""
-        return self._current_user
+        """Get the current authenticated user (from context)."""
+        return _auth_current_user_context.get()
 
     def get_login_url(self) -> str:
         """Get the Google OAuth login URL.
@@ -416,7 +424,7 @@ class AuthMiddleware:
         return self.jwt.create_token(user)
 
     def verify_request(self, token: str) -> bool:
-        """Verify a request and set current user.
+        """Verify a request and set current user in context.
 
         Args:
             token: JWT token from request
@@ -426,15 +434,15 @@ class AuthMiddleware:
         """
         user = self.jwt.verify_token(token)
         if user:
-            self._current_user = user
+            _auth_current_user_context.set(user)
             return True
 
-        self._current_user = None
+        _auth_current_user_context.set(None)
         return False
 
     def clear_user(self) -> None:
         """Clear the current user context."""
-        self._current_user = None
+        _auth_current_user_context.set(None)
 
     def get_user_for_logging(self) -> str:
         """Get user identifier for logging purposes.
@@ -442,8 +450,9 @@ class AuthMiddleware:
         Returns:
             User email or "anonymous"
         """
-        if self._current_user:
-            return self._current_user.email
+        current_user = self.current_user
+        if current_user:
+            return current_user.email
         return "anonymous"
 
 
