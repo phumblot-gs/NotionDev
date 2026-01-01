@@ -838,6 +838,26 @@ async def notiondev_create_module(
     Returns:
         Created module details or error
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            module = backend.create_module(
+                name=name,
+                description=description,
+                code_prefix=code_prefix,
+                application=application,
+                content_markdown=content_markdown
+            )
+            if module:
+                return json.dumps(module, indent=2)
+            else:
+                return json.dumps({"error": "Failed to create module"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     args = [
         "create-module",
         "--name", name,
@@ -874,6 +894,26 @@ async def notiondev_create_feature(
     Returns:
         Created feature details or error
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            feature = backend.create_feature(
+                name=name,
+                module_prefix=module_prefix,
+                content_markdown=content_markdown,
+                plan=plan,
+                user_rights=user_rights
+            )
+            if feature:
+                return json.dumps(feature, indent=2)
+            else:
+                return json.dumps({"error": f"Failed to create feature. Module '{module_prefix}' may not exist."})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     args = [
         "create-feature",
         "--name", name,
@@ -906,6 +946,21 @@ async def notiondev_update_module_content(
     Returns:
         Success or error message
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            result = backend.update_module_content(
+                code_prefix=code_prefix,
+                content_markdown=content_markdown,
+                replace=replace
+            )
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     args = ["update-module", code_prefix, "--content", content_markdown]
     if not replace:
         args.append("--append")
@@ -930,6 +985,21 @@ async def notiondev_update_feature_content(
     Returns:
         Success or error message
     """
+    from .remote_backend import is_remote_mode, get_remote_backend
+
+    if is_remote_mode():
+        try:
+            backend = get_remote_backend()
+            result = backend.update_feature_content(
+                code=code,
+                content_markdown=content_markdown,
+                replace=replace
+            )
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # Local mode: use CLI
     args = ["update-feature", code, "--content", content_markdown]
     if not replace:
         args.append("--append")

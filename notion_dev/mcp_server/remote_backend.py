@@ -550,6 +550,155 @@ class RemoteBackend:
             }
         }
 
+    # =========================================================================
+    # Notion write operations (for remote mode)
+    # =========================================================================
+
+    def create_module(
+        self,
+        name: str,
+        description: str,
+        code_prefix: str,
+        application: str = "Backend",
+        content_markdown: str = ""
+    ) -> Optional[Dict[str, Any]]:
+        """Create a new module in Notion.
+
+        Args:
+            name: Module name
+            description: Short description
+            code_prefix: 2-3 character code prefix
+            application: One of 'Backend', 'Frontend', 'Service'
+            content_markdown: Documentation content
+
+        Returns:
+            Created module dict or None
+        """
+        module = self.notion_client.create_module(
+            name=name,
+            description=description,
+            code_prefix=code_prefix,
+            application=application,
+            content_markdown=content_markdown
+        )
+
+        if not module:
+            return None
+
+        return {
+            "code_prefix": module.code_prefix,
+            "name": module.name,
+            "description": module.description,
+            "application": module.application,
+            "notion_id": module.notion_id,
+        }
+
+    def create_feature(
+        self,
+        name: str,
+        module_prefix: str,
+        content_markdown: str = "",
+        plan: str = "",
+        user_rights: str = ""
+    ) -> Optional[Dict[str, Any]]:
+        """Create a new feature in Notion.
+
+        Args:
+            name: Feature name
+            module_prefix: Parent module's code prefix
+            content_markdown: Documentation content
+            plan: Comma-separated plans
+            user_rights: Comma-separated user rights
+
+        Returns:
+            Created feature dict or None
+        """
+        # Get module to get its notion_id
+        module = self.notion_client.get_module_by_prefix(module_prefix)
+        if not module:
+            logger.error(f"Module {module_prefix} not found")
+            return None
+
+        # Generate next feature code
+        code = self.notion_client.generate_next_feature_code(module_prefix)
+
+        # Parse plan and user_rights
+        plan_list = [p.strip() for p in plan.split(",") if p.strip()] if plan else []
+        rights_list = [r.strip() for r in user_rights.split(",") if r.strip()] if user_rights else []
+
+        feature = self.notion_client.create_feature(
+            code=code,
+            name=name,
+            module_id=module.notion_id,
+            plan=plan_list,
+            user_rights=rights_list,
+            content_markdown=content_markdown
+        )
+
+        if not feature:
+            return None
+
+        return {
+            "code": feature.code,
+            "name": feature.name,
+            "module_name": feature.module_name,
+            "notion_id": feature.notion_id,
+        }
+
+    def update_module_content(
+        self,
+        code_prefix: str,
+        content_markdown: str,
+        replace: bool = True
+    ) -> Dict[str, Any]:
+        """Update a module's content.
+
+        Args:
+            code_prefix: Module code prefix
+            content_markdown: New content
+            replace: If True, replace. If False, append.
+
+        Returns:
+            Success dict or error dict
+        """
+        success = self.notion_client.update_module_content(
+            code_prefix=code_prefix,
+            content_markdown=content_markdown,
+            replace=replace
+        )
+
+        if success:
+            return {"success": True, "message": f"Module {code_prefix} content updated"}
+        else:
+            return {"error": f"Failed to update module {code_prefix} content"}
+
+    def update_feature_content(
+        self,
+        code: str,
+        content_markdown: str,
+        replace: bool = True
+    ) -> Dict[str, Any]:
+        """Update a feature's content.
+
+        Args:
+            code: Feature code
+            content_markdown: New content
+            replace: If True, replace. If False, append.
+
+        Returns:
+            Success dict or error dict
+        """
+        success = self.notion_client.update_feature_content(
+            code=code,
+            content_markdown=content_markdown,
+            replace=replace
+        )
+
+        if success:
+            return {"success": True, "message": f"Feature {code} content updated"}
+        else:
+            return {"error": f"Failed to update feature {code} content"}
+
 
 # Global instance (lazy-loaded)
 _remote_backend: Optional[RemoteBackend] = None
