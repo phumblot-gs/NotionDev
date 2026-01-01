@@ -648,23 +648,14 @@ class RemoteBackend:
         Returns:
             Created feature dict or None
         """
-        # Get module to get its notion_id
-        module = self.notion_client.get_module_by_prefix(module_prefix)
-        if not module:
-            logger.error(f"Module {module_prefix} not found")
-            return None
-
-        # Generate next feature code
-        code = self.notion_client.generate_next_feature_code(module_prefix)
-
         # Parse plan and user_rights
         plan_list = [p.strip() for p in plan.split(",") if p.strip()] if plan else []
         rights_list = [r.strip() for r in user_rights.split(",") if r.strip()] if user_rights else []
 
+        # NotionClient.create_feature now handles module lookup and code generation
         feature = self.notion_client.create_feature(
-            code=code,
             name=name,
-            module_id=module.notion_id,
+            module_prefix=module_prefix,
             plan=plan_list,
             user_rights=rights_list,
             content_markdown=content_markdown

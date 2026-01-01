@@ -828,9 +828,10 @@ class NotionClient:
 
     def create_feature(
         self,
-        code: str,
         name: str,
-        module_id: str,
+        module_prefix: str = None,
+        code: str = None,
+        module_id: str = None,
         status: str = "Draft",
         plan: List[str] = None,
         user_rights: List[str] = None,
@@ -838,10 +839,17 @@ class NotionClient:
     ) -> Optional[Feature]:
         """Create a new feature in Notion.
 
+        Can be called in two ways:
+        1. With module_prefix (recommended): code is auto-generated
+           create_feature(name="My Feature", module_prefix="CC")
+        2. With explicit code and module_id:
+           create_feature(name="My Feature", code="CC01", module_id="...")
+
         Args:
-            code: Feature code (e.g., 'CC01', 'API02')
             name: Feature name (title)
-            module_id: Notion ID of the parent module
+            module_prefix: Module's code prefix (e.g., 'CC', 'API') - auto-generates code
+            code: Feature code (e.g., 'CC01') - optional if module_prefix provided
+            module_id: Notion ID of the parent module - optional if module_prefix provided
             status: One of 'Draft', 'Review', 'Validated', 'Obsolete'
             plan: List of subscription plans
             user_rights: List of user rights
@@ -851,6 +859,19 @@ class NotionClient:
             Feature object if created successfully, None otherwise
         """
         url = "https://api.notion.com/v1/pages"
+
+        # Resolve module_prefix to code and module_id if needed
+        if module_prefix:
+            module = self.get_module_by_prefix(module_prefix.upper())
+            if not module:
+                logger.error(f"Module with prefix '{module_prefix}' not found")
+                return None
+            module_id = module.notion_id
+            if not code:
+                code = self.generate_next_feature_code(module_prefix)
+        elif not code or not module_id:
+            logger.error("Either module_prefix or both code and module_id must be provided")
+            return None
 
         valid_statuses = ['Draft', 'Review', 'Validated', 'Obsolete']
         if status not in valid_statuses:
