@@ -1665,8 +1665,8 @@ async def notiondev_read_file(
         })
 
     # Get module from Notion to retrieve repository_url
-    from .remote_backend import get_backend
-    backend = get_backend()
+    from .remote_backend import get_remote_backend
+    backend = get_remote_backend()
     module = backend.get_module(module_prefix)
     repository_url = module.get("repository_url") if module else None
 
@@ -1706,8 +1706,8 @@ async def notiondev_search_code(
         })
 
     # Get module from Notion to retrieve repository_url
-    from .remote_backend import get_backend
-    backend = get_backend()
+    from .remote_backend import get_remote_backend
+    backend = get_remote_backend()
     module = backend.get_module(module_prefix)
     repository_url = module.get("repository_url") if module else None
 
@@ -1745,8 +1745,8 @@ async def notiondev_list_files(
         })
 
     # Get module from Notion to retrieve repository_url
-    from .remote_backend import get_backend
-    backend = get_backend()
+    from .remote_backend import get_remote_backend
+    backend = get_remote_backend()
     module = backend.get_module(module_prefix)
     repository_url = module.get("repository_url") if module else None
 
@@ -1791,8 +1791,8 @@ async def notiondev_prepare_feature_context(
         })
 
     # Get module from Notion to retrieve repository_url
-    from .remote_backend import get_backend
-    backend = get_backend()
+    from .remote_backend import get_remote_backend
+    backend = get_remote_backend()
     module = backend.get_module(module_prefix)
     repository_url = module.get("repository_url") if module else None
 
