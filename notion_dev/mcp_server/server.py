@@ -2093,7 +2093,7 @@ def main():
         # Initialize OAuth server if auth is enabled
         oauth_server = None
         if config.auth_enabled:
-            from .oauth_server import init_oauth_server, get_oauth_server
+            from .oauth_server import init_oauth_server
 
             # Determine base URL
             base_url = os.environ.get("MCP_BASE_URL", f"http://localhost:{config.port}")
