@@ -386,6 +386,9 @@ class RemoteBackend:
             "description": module.description,
             "application": module.application,
             "content": module.content,
+            "repository_url": module.repository_url,
+            "branch": module.branch,
+            "code_path": module.code_path,
         }
 
     def list_features(self, module_prefix: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -399,7 +402,7 @@ class RemoteBackend:
             {
                 "code": f.code,
                 "name": f.name,
-                "module_prefix": f.module_prefix,
+                "module_name": f.module_name,
             }
             for f in features
         ]
@@ -413,8 +416,138 @@ class RemoteBackend:
         return {
             "code": feature.code,
             "name": feature.name,
-            "module_prefix": feature.module_prefix,
+            "module_name": feature.module_name,
             "content": feature.content,
+        }
+
+    # =========================================================================
+    # Repository operations (for remote mode)
+    # =========================================================================
+
+    def clone_module(self, code_prefix: str, force: bool = False) -> Dict[str, Any]:
+        """Clone a module's repository for code analysis.
+
+        Args:
+            code_prefix: Module code prefix (e.g., 'ND', 'CC')
+            force: If True, remove existing clone and re-clone
+
+        Returns:
+            Dict with clone status and path
+        """
+        # Get module info from Notion
+        module = self.get_module(code_prefix)
+        if not module:
+            return {"error": f"Module '{code_prefix}' not found"}
+
+        repository_url = module.get("repository_url")
+        if not repository_url:
+            return {
+                "error": f"Module '{module['name']}' does not have a repository_url configured",
+                "hint": "Add the repository_url property to the module in Notion"
+            }
+
+        branch = module.get("branch")
+        code_path = module.get("code_path")
+
+        # Use GitHubClient for clone operations
+        from ..core.github_client import GitHubClient
+
+        # Get clone directory from config
+        clone_dir = self.config.repos_cache_dir
+
+        github = GitHubClient(
+            token=os.environ.get("GITHUB_TOKEN"),  # Optional, for private repos
+            clone_dir=clone_dir,
+            shallow_clone=True
+        )
+
+        try:
+            result = github.clone_repository(
+                repo_url=repository_url,
+                branch=branch,
+                force=force
+            )
+
+            if result["success"]:
+                response = {
+                    "success": True,
+                    "message": f"Repository cloned successfully for module '{module['name']}'",
+                    "module": {
+                        "name": module["name"],
+                        "code_prefix": code_prefix,
+                        "repository_url": repository_url,
+                        "branch": branch or "default"
+                    },
+                    "clone": {
+                        "path": result["path"],
+                        "code_path": code_path
+                    }
+                }
+
+                if code_path:
+                    full_code_path = os.path.join(result["path"], code_path)
+                    response["clone"]["full_code_path"] = full_code_path
+                    response["hint"] = f"Code is located at: {full_code_path}"
+                else:
+                    response["hint"] = f"Repository cloned to: {result['path']}"
+
+                return response
+            else:
+                return {
+                    "error": result.get("error", "Clone failed"),
+                    "repository_url": repository_url
+                }
+
+        except Exception as e:
+            logger.error(f"Clone error for {code_prefix}: {e}")
+            return {"error": str(e)}
+
+    def get_cloned_repo_info(self, code_prefix: str) -> Dict[str, Any]:
+        """Get information about a cloned repository.
+
+        Args:
+            code_prefix: Module code prefix
+
+        Returns:
+            Dict with repository info or error
+        """
+        module = self.get_module(code_prefix)
+        if not module:
+            return {"error": f"Module '{code_prefix}' not found"}
+
+        repository_url = module.get("repository_url")
+        if not repository_url:
+            return {
+                "error": f"Module '{module['name']}' does not have a repository_url configured"
+            }
+
+        from ..core.github_client import GitHubClient
+
+        clone_dir = self.config.repos_cache_dir
+        github = GitHubClient(clone_dir=clone_dir)
+
+        # Get the local path for this repo
+        local_path = github._get_repo_local_path(repository_url)
+        info = github.get_repository_info(local_path)
+
+        if not info.get("exists"):
+            return {
+                "error": f"Repository not cloned for module '{module['name']}'",
+                "hint": f"Use notiondev_clone_module('{code_prefix}') to clone first"
+            }
+
+        return {
+            "module": {
+                "name": module["name"],
+                "code_prefix": code_prefix
+            },
+            "repository": {
+                "path": info["path"],
+                "branch": info["branch"],
+                "remote_url": info["remote_url"],
+                "last_commit": info["last_commit"],
+                "code_path": module.get("code_path"),
+            }
         }
 
 

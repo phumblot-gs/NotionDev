@@ -961,6 +961,16 @@ async def notiondev_clone_module(
     Returns:
         JSON with clone status and local path
     """
+    # Check if we're in remote mode
+    config = get_config()
+    if config.is_remote:
+        # Use RemoteBackend for remote mode
+        from .remote_backend import get_remote_backend
+        backend = get_remote_backend()
+        result = backend.clone_module(module_prefix, force)
+        return json.dumps(result, indent=2)
+
+    # Local mode: use CLI and local config
     # Get module info via CLI
     module_result = run_cli_command(["module", module_prefix])
     if "error" in module_result:
@@ -1034,6 +1044,16 @@ async def notiondev_get_cloned_repo_info(module_prefix: str) -> str:
     Returns:
         JSON with repository information including path, branch, and last commit
     """
+    # Check if we're in remote mode
+    config = get_config()
+    if config.is_remote:
+        # Use RemoteBackend for remote mode
+        from .remote_backend import get_remote_backend
+        backend = get_remote_backend()
+        result = backend.get_cloned_repo_info(module_prefix)
+        return json.dumps(result, indent=2)
+
+    # Local mode: use CLI and local config
     # Get module info via CLI
     module_result = run_cli_command(["module", module_prefix])
     if "error" in module_result:
