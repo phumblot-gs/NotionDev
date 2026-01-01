@@ -225,7 +225,6 @@ class TestServerImports:
     def test_server_imports_get_remote_backend_correctly(self):
         """Server should use get_remote_backend, not get_backend."""
         import ast
-        from pathlib import Path
 
         server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
 
@@ -486,7 +485,6 @@ class TestMCPToolsIntegration:
     def test_tool_enabled_check_in_code(self):
         """Test that is_tool_enabled is used correctly in tools."""
         import ast
-        from pathlib import Path
 
         server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
 

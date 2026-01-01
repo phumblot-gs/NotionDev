@@ -51,6 +51,7 @@ coverage.xml
 
 # Virtual environments
 venv/
+.venv/
 ENV/
 env/
 notion-dev-install/
