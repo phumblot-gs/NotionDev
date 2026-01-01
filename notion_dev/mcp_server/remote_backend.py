@@ -97,8 +97,8 @@ class RemoteBackend:
 
             self._notion_client = NotionClient(
                 token=self._notion_token,
-                database_modules_id=self._notion_modules_db,
-                database_features_id=self._notion_features_db
+                modules_db_id=self._notion_modules_db,
+                features_db_id=self._notion_features_db
             )
         return self._notion_client
 

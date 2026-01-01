@@ -244,6 +244,14 @@ async def notiondev_check_installation() -> str:
 
     Returns the installation status and any issues found.
     """
+    # This tool is disabled in remote mode
+    config = get_config()
+    if config.is_remote:
+        return json.dumps({
+            "error": "This tool is not available in remote mode",
+            "message": "notiondev_check_installation is only available when running locally via Claude Code CLI"
+        })
+
     issues = []
     status = {
         "installed": False,
@@ -288,6 +296,14 @@ async def notiondev_get_install_instructions() -> str:
 
     Returns step-by-step installation guide.
     """
+    # This tool is disabled in remote mode
+    config = get_config()
+    if config.is_remote:
+        return json.dumps({
+            "error": "This tool is not available in remote mode",
+            "message": "notiondev_get_install_instructions is only available when running locally via Claude Code CLI"
+        })
+
     instructions = """
 # NotionDev Installation Guide
 
@@ -459,6 +475,15 @@ async def notiondev_work_on_ticket(task_id: str, ctx: Context = None) -> str:
     Returns:
         Status message with ticket and feature information
     """
+    # This tool is disabled in remote mode
+    config = get_config()
+    if config.is_remote:
+        return json.dumps({
+            "error": "This tool is not available in remote mode",
+            "message": "notiondev_work_on_ticket is only available when running locally via Claude Code CLI",
+            "hint": "Use notiondev_get_feature to get feature documentation instead"
+        })
+
     # Use CLI command with --yes --json to get structured output
     result = run_cli_command(["work", task_id, "--yes"], timeout=120)
     return json.dumps(result, indent=2, ensure_ascii=False)
@@ -518,6 +543,14 @@ async def notiondev_mark_done() -> str:
     Returns:
         Confirmation or error message
     """
+    # This tool is disabled in remote mode
+    config = get_config()
+    if config.is_remote:
+        return json.dumps({
+            "error": "This tool is not available in remote mode",
+            "message": "notiondev_mark_done is only available when running locally via Claude Code CLI"
+        })
+
     result = run_notion_dev_command(["done"])
 
     if result["success"]:
