@@ -69,6 +69,7 @@ config.yml
 .cursor/
 .cursorrules
 .claude/
+AGENTS.md
 
 # OS
 .DS_Store
