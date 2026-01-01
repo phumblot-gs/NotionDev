@@ -1208,6 +1208,44 @@ class NotionClient:
             return []
         return self.list_features_for_module(module.notion_id)
 
+    def generate_next_feature_code(self, module_prefix: str) -> str:
+        """Generate the next feature code for a module.
+
+        Feature codes follow the pattern: {MODULE_PREFIX}{NUMBER}
+        e.g., CC01, CC02, API01, API02
+
+        Args:
+            module_prefix: The module's code prefix (e.g., 'CC', 'API')
+
+        Returns:
+            The next available feature code (e.g., 'CC03' if CC01 and CC02 exist)
+        """
+        prefix = module_prefix.upper()
+
+        # Get all features for this module
+        features = self.get_features_by_module(prefix)
+
+        if not features:
+            # No existing features, start at 01
+            return f"{prefix}01"
+
+        # Extract numeric suffixes from existing codes
+        max_num = 0
+        for feature in features:
+            if feature.code and feature.code.upper().startswith(prefix):
+                # Extract the numeric part after the prefix
+                num_part = feature.code[len(prefix):]
+                try:
+                    num = int(num_part)
+                    max_num = max(max_num, num)
+                except ValueError:
+                    # Non-numeric suffix, skip
+                    continue
+
+        # Generate next code with zero-padded number
+        next_num = max_num + 1
+        return f"{prefix}{next_num:02d}"
+
     def get_modules(self) -> List[Module]:
         """Alias for list_modules - used by remote backend."""
         return self.list_modules()
