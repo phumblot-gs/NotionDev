@@ -84,25 +84,33 @@ class CodeReader:
         """
         self.repos_base_dir = Path(repos_base_dir)
 
-    def get_repo_path(self, module_prefix: str) -> Optional[Path]:
+    def get_repo_path(self, module_prefix: str, repository_url: str = None) -> Optional[Path]:
         """Get the local path for a module's repository.
 
         Args:
             module_prefix: Module code prefix (e.g., 'CC', 'API')
+            repository_url: Optional repository URL to find by GitHubClient naming convention
 
         Returns:
             Path to repository or None if not cloned
         """
-        # Look for a directory matching the module prefix
         if not self.repos_base_dir.exists():
             return None
 
-        # Try exact match first
+        # If repository_url is provided, use GitHubClient naming convention
+        if repository_url:
+            from ..core.github_client import GitHubClient
+            github = GitHubClient(clone_dir=str(self.repos_base_dir))
+            local_path = Path(github._get_repo_local_path(repository_url))
+            if local_path.exists():
+                return local_path
+
+        # Fallback: try exact match with module prefix
         repo_path = self.repos_base_dir / module_prefix
         if repo_path.exists():
             return repo_path
 
-        # Try case-insensitive match
+        # Fallback: try case-insensitive match
         for path in self.repos_base_dir.iterdir():
             if path.is_dir() and path.name.upper() == module_prefix.upper():
                 return path
@@ -115,6 +123,7 @@ class CodeReader:
         file_path: str,
         start_line: int = 1,
         end_line: Optional[int] = None,
+        repository_url: str = None,
     ) -> Dict[str, Any]:
         """Read the contents of a file in a cloned repository.
 
@@ -123,11 +132,12 @@ class CodeReader:
             file_path: Relative path to file within the repository
             start_line: First line to read (1-indexed)
             end_line: Last line to read (None for all)
+            repository_url: Optional repository URL to find by GitHubClient naming convention
 
         Returns:
             Dict with file content and metadata
         """
-        repo_path = self.get_repo_path(module_prefix)
+        repo_path = self.get_repo_path(module_prefix, repository_url)
         if not repo_path:
             return {
                 "error": f"Repository not cloned for module '{module_prefix}'",
@@ -195,6 +205,7 @@ class CodeReader:
         glob_pattern: str = "**/*",
         max_results: int = 50,
         context_lines: int = 2,
+        repository_url: str = None,
     ) -> Dict[str, Any]:
         """Search for a pattern in the code of a module.
 
@@ -204,11 +215,12 @@ class CodeReader:
             glob_pattern: File glob pattern to filter files
             max_results: Maximum number of matches to return
             context_lines: Number of context lines before/after match
+            repository_url: Optional repository URL to find by GitHubClient naming convention
 
         Returns:
             Dict with search results
         """
-        repo_path = self.get_repo_path(module_prefix)
+        repo_path = self.get_repo_path(module_prefix, repository_url)
         if not repo_path:
             return {
                 "error": f"Repository not cloned for module '{module_prefix}'",
@@ -276,6 +288,7 @@ class CodeReader:
         glob_pattern: str = "**/*",
         include_size: bool = False,
         max_files: int = 500,
+        repository_url: str = None,
     ) -> Dict[str, Any]:
         """List files in a module's repository.
 
@@ -284,11 +297,12 @@ class CodeReader:
             glob_pattern: Glob pattern to filter files
             include_size: Include file sizes in results
             max_files: Maximum number of files to return
+            repository_url: Optional repository URL to find by GitHubClient naming convention
 
         Returns:
             Dict with file listing
         """
-        repo_path = self.get_repo_path(module_prefix)
+        repo_path = self.get_repo_path(module_prefix, repository_url)
         if not repo_path:
             return {
                 "error": f"Repository not cloned for module '{module_prefix}'",
@@ -330,6 +344,7 @@ class CodeReader:
         module_prefix: str,
         feature_code: str,
         max_total_lines: int = 2000,
+        repository_url: str = None,
     ) -> Dict[str, Any]:
         """Prepare aggregated code context for a feature.
 
@@ -342,11 +357,12 @@ class CodeReader:
             module_prefix: Module code prefix
             feature_code: Feature code (e.g., 'CC01')
             max_total_lines: Maximum total lines to include
+            repository_url: Optional repository URL to find by GitHubClient naming convention
 
         Returns:
             Dict with aggregated context
         """
-        repo_path = self.get_repo_path(module_prefix)
+        repo_path = self.get_repo_path(module_prefix, repository_url)
         if not repo_path:
             return {
                 "error": f"Repository not cloned for module '{module_prefix}'",
@@ -365,6 +381,7 @@ class CodeReader:
             primary_pattern,
             max_results=20,
             context_lines=0,
+            repository_url=repository_url,
         )
 
         primary_files = set()
@@ -379,6 +396,7 @@ class CodeReader:
             code_pattern,
             max_results=50,
             context_lines=0,
+            repository_url=repository_url,
         )
 
         secondary_files = set()
@@ -397,7 +415,7 @@ class CodeReader:
             if lines_remaining <= 0:
                 break
 
-            result = self.read_file(module_prefix, file_path)
+            result = self.read_file(module_prefix, file_path, repository_url=repository_url)
             if result.get("success"):
                 lines = result["content"].count("\n") + 1
                 context.primary_files.append({
@@ -411,7 +429,7 @@ class CodeReader:
         # Step 5: Add secondary files (metadata only if no space)
         for file_path in secondary_files:
             if lines_remaining > 100:
-                result = self.read_file(module_prefix, file_path)
+                result = self.read_file(module_prefix, file_path, repository_url=repository_url)
                 if result.get("success"):
                     lines = min(result["content"].count("\n") + 1, 50)  # Cap per file
                     content_preview = "\n".join(result["content"].split("\n")[:50])

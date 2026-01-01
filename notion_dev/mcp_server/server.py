@@ -1664,9 +1664,15 @@ async def notiondev_read_file(
             "hint": "Use standard file reading tools in local mode"
         })
 
+    # Get module from Notion to retrieve repository_url
+    from .remote_backend import get_backend
+    backend = get_backend()
+    module = backend.get_module(module_prefix)
+    repository_url = module.get("repository_url") if module else None
+
     from .code_tools import get_code_reader
     reader = get_code_reader()
-    result = reader.read_file(module_prefix, file_path, start_line, end_line)
+    result = reader.read_file(module_prefix, file_path, start_line, end_line, repository_url)
     return json.dumps(result, indent=2)
 
 
@@ -1699,9 +1705,15 @@ async def notiondev_search_code(
             "hint": "Use standard grep/search tools in local mode"
         })
 
+    # Get module from Notion to retrieve repository_url
+    from .remote_backend import get_backend
+    backend = get_backend()
+    module = backend.get_module(module_prefix)
+    repository_url = module.get("repository_url") if module else None
+
     from .code_tools import get_code_reader
     reader = get_code_reader()
-    result = reader.search_code(module_prefix, pattern, glob, max_results, context_lines)
+    result = reader.search_code(module_prefix, pattern, glob, max_results, context_lines, repository_url)
     return json.dumps(result, indent=2)
 
 
@@ -1732,9 +1744,15 @@ async def notiondev_list_files(
             "hint": "Use standard ls/find tools in local mode"
         })
 
+    # Get module from Notion to retrieve repository_url
+    from .remote_backend import get_backend
+    backend = get_backend()
+    module = backend.get_module(module_prefix)
+    repository_url = module.get("repository_url") if module else None
+
     from .code_tools import get_code_reader
     reader = get_code_reader()
-    result = reader.list_files(module_prefix, glob_pattern, include_size, max_files)
+    result = reader.list_files(module_prefix, glob_pattern, include_size, max_files, repository_url)
     return json.dumps(result, indent=2)
 
 
@@ -1772,9 +1790,15 @@ async def notiondev_prepare_feature_context(
             "hint": "Use notiondev_work_on_ticket in local mode for similar functionality"
         })
 
+    # Get module from Notion to retrieve repository_url
+    from .remote_backend import get_backend
+    backend = get_backend()
+    module = backend.get_module(module_prefix)
+    repository_url = module.get("repository_url") if module else None
+
     from .code_tools import get_code_reader
     reader = get_code_reader()
-    result = reader.prepare_feature_context(module_prefix, feature_code, max_total_lines)
+    result = reader.prepare_feature_context(module_prefix, feature_code, max_total_lines, repository_url)
     return json.dumps(result, indent=2)
 
 
