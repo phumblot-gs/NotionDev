@@ -1273,7 +1273,7 @@ def list_modules(ctx, output_json):
     """List all modules from Notion database"""
     config = ctx.obj['config']
 
-    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id)
+    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id, config.notion.database_features_id)
 
     if not output_json:
         with console.status("[bold green]Fetching modules..."):
@@ -1323,7 +1323,11 @@ def get_module(ctx, code_prefix, output_json):
     """Get detailed information about a module"""
     config = ctx.obj['config']
 
-    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id)
+    notion_client = NotionClient(
+        config.notion.token,
+        config.notion.database_modules_id,
+        config.notion.database_features_id
+    )
 
     if not output_json:
         with console.status(f"[bold green]Fetching module {code_prefix}..."):
@@ -1577,7 +1581,7 @@ def create_module(ctx, name, prefix, description, application, content, output_j
     """Create a new module in Notion"""
     config = ctx.obj['config']
 
-    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id)
+    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id, config.notion.database_features_id)
 
     if not output_json:
         with console.status("[bold green]Creating module..."):
@@ -1699,7 +1703,7 @@ def update_module(ctx, code_prefix, content, append, output_json):
     """Update a module's documentation content"""
     config = ctx.obj['config']
 
-    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id)
+    notion_client = NotionClient(config.notion.token, config.notion.database_modules_id, config.notion.database_features_id)
 
     if not output_json:
         with console.status(f"[bold green]Updating module {code_prefix}..."):
