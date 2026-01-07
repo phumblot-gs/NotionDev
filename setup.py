@@ -9,7 +9,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="notion-dev",
-    version="2.0.2",
+    version="2.0.3",
     author="Your Name",
     author_email="your.email@example.com",
     description="Integration tool for Notion, Asana and Git workflows with MCP server support",

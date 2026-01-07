@@ -2153,6 +2153,34 @@ def main():
 
         # Create handler for messages endpoint
         async def handle_messages(request):
+            from .remote_backend import get_remote_backend
+
+            # If auth is enabled, verify the user (same logic as handle_sse)
+            user = get_user_from_token(request)
+
+            if config.auth_enabled and not user:
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+            # Set user context in backend
+            if user:
+                try:
+                    backend = get_remote_backend()
+                    remote_user = backend.set_current_user(user.email, user.name)
+                    logger.info(f"Set current user (messages): {remote_user.email} (Asana: {remote_user.asana_user_gid})")
+                except Exception as e:
+                    logger.error(f"Failed to set user context: {e}")
+            else:
+                # Try headers/query params as fallback (for testing)
+                user_email = request.headers.get("x-user-email") or request.query_params.get("user_email")
+                user_name = request.headers.get("x-user-name", "Claude User")
+                if user_email:
+                    try:
+                        backend = get_remote_backend()
+                        remote_user = backend.set_current_user(user_email, user_name)
+                        logger.info(f"Set current user (messages fallback): {remote_user.email}")
+                    except Exception as e:
+                        logger.error(f"Failed to set user context: {e}")
+
             await sse.handle_post_message(request.scope, request.receive, request._send)
 
         # Create health check endpoint
