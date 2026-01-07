@@ -106,6 +106,7 @@ When working with modules, features, or tickets, you MUST use NotionDev tools in
 2. **Check existing features first**: Use `notiondev_list_features` before creating duplicates
 3. **Link tickets to features**: Use the `feature_code` parameter in `notiondev_create_ticket`
 4. **Read before update**: Always read current content before updating documentation
+5. **Don't ask for project**: When creating tickets, omit the `project_gid` parameter - the system will automatically use the default portfolio project
 
 ## Configuration
 
