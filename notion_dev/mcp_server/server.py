@@ -2153,38 +2153,49 @@ def main():
                     streams[0], streams[1], mcp._mcp_server.create_initialization_options()
                 )
 
-        # Create handler for messages endpoint
-        async def handle_messages(request):
-            from .remote_backend import get_remote_backend
-            from starlette.exceptions import HTTPException
+        # Create ASGI app wrapper for messages endpoint with auth
+        class MessagesApp:
+            """ASGI app that wraps SSE message handler with authentication."""
 
-            # If auth is enabled, verify the user (same logic as handle_sse)
-            user = get_user_from_token(request)
+            async def __call__(self, scope, receive, send):
+                from starlette.requests import Request
+                from starlette.responses import Response
+                from .remote_backend import get_remote_backend
 
-            if config.auth_enabled and not user:
-                raise HTTPException(status_code=401, detail="Unauthorized")
+                request = Request(scope, receive, send)
 
-            # Set user context in backend
-            if user:
-                try:
-                    backend = get_remote_backend()
-                    remote_user = backend.set_current_user(user.email, user.name)
-                    logger.info(f"Set current user (messages): {remote_user.email} (Asana: {remote_user.asana_user_gid})")
-                except Exception as e:
-                    logger.error(f"Failed to set user context: {e}")
-            else:
-                # Try headers/query params as fallback (for testing)
-                user_email = request.headers.get("x-user-email") or request.query_params.get("user_email")
-                user_name = request.headers.get("x-user-name", "Claude User")
-                if user_email:
+                # If auth is enabled, verify the user (same logic as handle_sse)
+                user = get_user_from_token(request)
+
+                if config.auth_enabled and not user:
+                    response = Response("Unauthorized", status_code=401)
+                    await response(scope, receive, send)
+                    return
+
+                # Set user context in backend
+                if user:
                     try:
                         backend = get_remote_backend()
-                        remote_user = backend.set_current_user(user_email, user_name)
-                        logger.info(f"Set current user (messages fallback): {remote_user.email}")
+                        remote_user = backend.set_current_user(user.email, user.name)
+                        logger.info(f"Set current user (messages): {remote_user.email} (Asana: {remote_user.asana_user_gid})")
                     except Exception as e:
                         logger.error(f"Failed to set user context: {e}")
+                else:
+                    # Try headers/query params as fallback (for testing)
+                    user_email = request.headers.get("x-user-email") or request.query_params.get("user_email")
+                    user_name = request.headers.get("x-user-name", "Claude User")
+                    if user_email:
+                        try:
+                            backend = get_remote_backend()
+                            remote_user = backend.set_current_user(user_email, user_name)
+                            logger.info(f"Set current user (messages fallback): {remote_user.email}")
+                        except Exception as e:
+                            logger.error(f"Failed to set user context: {e}")
 
-            await sse.handle_post_message(request.scope, request.receive, request._send)
+                # Call the SSE handler directly as ASGI
+                await sse.handle_post_message(scope, receive, send)
+
+        messages_app = MessagesApp()
 
         # Create health check endpoint
         async def health_check(request):
@@ -2540,7 +2551,7 @@ def main():
         routes = [
             Route("/health", health_check, methods=["GET"]),
             Route("/sse", handle_sse, methods=["GET"]),
-            Route("/messages/", handle_messages, methods=["POST"]),
+            Mount("/messages", app=messages_app),
         ]
 
         # Add OAuth 2.0 routes (required by Claude.ai)
