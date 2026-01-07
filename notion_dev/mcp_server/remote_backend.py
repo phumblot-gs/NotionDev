@@ -66,6 +66,7 @@ class RemoteBackend:
         # Asana workspace and portfolio from environment
         self._workspace_gid = os.environ.get("ASANA_WORKSPACE_GID", "")
         self._portfolio_gid = os.environ.get("ASANA_PORTFOLIO_GID", "")
+        self._default_project_gid = os.environ.get("ASANA_DEFAULT_PROJECT_GID", "")
 
         # Notion database IDs from environment
         self._notion_modules_db = os.environ.get("NOTION_MODULES_DATABASE_ID", "")
@@ -90,7 +91,8 @@ class RemoteBackend:
                 access_token=self._asana_token,
                 workspace_gid=self._workspace_gid,
                 user_gid="",  # Will be set per-request
-                portfolio_gid=self._portfolio_gid or None
+                portfolio_gid=self._portfolio_gid or None,
+                default_project_gid=self._default_project_gid or None
             )
         return self._asana_client
 
@@ -183,7 +185,8 @@ class RemoteBackend:
             access_token=self._asana_token,
             workspace_gid=self._workspace_gid,
             user_gid=current_user.asana_user_gid,
-            portfolio_gid=self._portfolio_gid or None
+            portfolio_gid=self._portfolio_gid or None,
+            default_project_gid=self._default_project_gid or None
         )
 
     # =========================================================================

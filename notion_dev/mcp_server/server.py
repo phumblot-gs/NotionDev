@@ -401,6 +401,7 @@ asana:
   workspace_gid: "YOUR_WORKSPACE_GID"
   user_gid: "YOUR_USER_GID"
   portfolio_gid: "YOUR_PORTFOLIO_GID"  # Optional
+  default_project_gid: "YOUR_PROJECT_GID"  # Optional - project for new tickets
 ```
 
 ## Step 4: Get your API tokens
@@ -424,6 +425,7 @@ asana:
 - Workspace GID: Found in Asana URL or via API
 - User GID: Your user ID in Asana
 - Portfolio GID: Optional, for filtering tickets by portfolio
+- Default Project GID: Optional, the project where new tickets will be created (use `notion-dev list-projects` to find it)
 
 ## Step 5: Test the installation
 
@@ -2154,12 +2156,13 @@ def main():
         # Create handler for messages endpoint
         async def handle_messages(request):
             from .remote_backend import get_remote_backend
+            from starlette.exceptions import HTTPException
 
             # If auth is enabled, verify the user (same logic as handle_sse)
             user = get_user_from_token(request)
 
             if config.auth_enabled and not user:
-                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+                raise HTTPException(status_code=401, detail="Unauthorized")
 
             # Set user context in backend
             if user:

@@ -8,11 +8,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 class AsanaClient:
-    def __init__(self, access_token: str, workspace_gid: str, user_gid: str, portfolio_gid: Optional[str] = None):
+    def __init__(
+        self,
+        access_token: str,
+        workspace_gid: str,
+        user_gid: str,
+        portfolio_gid: Optional[str] = None,
+        default_project_gid: Optional[str] = None
+    ):
         self.access_token = access_token
         self.workspace_gid = workspace_gid
         self.user_gid = user_gid
         self.portfolio_gid = portfolio_gid
+        self.default_project_gid = default_project_gid
         self.base_url = "https://app.asana.com/api/1.0"
         self.headers = {
             "Authorization": f"Bearer {access_token}",
@@ -283,15 +291,19 @@ class AsanaClient:
             Created AsanaTask or None if failed
         """
         try:
-            # Determine project
-            if not project_gid and self.portfolio_gid:
-                projects = self.get_portfolio_projects()
-                if projects:
-                    project_gid = projects[0].gid
-                    logger.info(f"Using first portfolio project: {projects[0].name}")
+            # Determine project: explicit > default > first portfolio project
+            if not project_gid:
+                if self.default_project_gid:
+                    project_gid = self.default_project_gid
+                    logger.info(f"Using default project: {project_gid}")
+                elif self.portfolio_gid:
+                    projects = self.get_portfolio_projects()
+                    if projects:
+                        project_gid = projects[0].gid
+                        logger.info(f"Using first portfolio project: {projects[0].name}")
 
             if not project_gid:
-                logger.error("No project specified and no portfolio projects available")
+                logger.error("No project specified and no portfolio/default project available")
                 return None
 
             # Build task data

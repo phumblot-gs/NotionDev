@@ -17,6 +17,7 @@ class AsanaConfig:
     workspace_gid: str
     user_gid: str
     portfolio_gid: Optional[str] = None  # ← Nouveau champ optionnel
+    default_project_gid: Optional[str] = None  # Project to use when creating tickets
 
 @dataclass
 class AIConfig:
@@ -75,7 +76,8 @@ class Config:
             access_token=asana_data['access_token'],
             workspace_gid=asana_data['workspace_gid'],
             user_gid=asana_data['user_gid'],
-            portfolio_gid=asana_data.get('portfolio_gid')  # Optionnel
+            portfolio_gid=asana_data.get('portfolio_gid'),  # Optionnel
+            default_project_gid=asana_data.get('default_project_gid')  # Optionnel
         )
         
         # Configs optionnelles avec valeurs par défaut
