@@ -2559,10 +2559,14 @@ def main():
                 return JSONResponse({"error": "server_error"}, status_code=500)
 
         # Build routes
+        # Note: We use Route with path:path to handle both /sse and /sse/ patterns
+        # Mount causes 307 redirects which lose the Authorization header
         routes = [
             Route("/health", health_check, methods=["GET"]),
-            Mount("/sse", app=sse_app),
-            Mount("/messages", app=messages_app),
+            Route("/sse", sse_app, methods=["GET", "POST"]),
+            Route("/sse/", sse_app, methods=["GET", "POST"]),
+            Route("/messages", messages_app, methods=["POST"]),
+            Route("/messages/", messages_app, methods=["POST"]),
         ]
 
         # Add OAuth 2.0 routes (required by Claude.ai)
