@@ -2568,19 +2568,29 @@ def main():
         # =====================================================================
         # Streamable HTTP transport (recommended, replaces deprecated SSE)
         # =====================================================================
+        # NOTE: Streamable HTTP requires proper lifespan management.
+        # The session_manager.run() must be called during app lifespan.
+        # We use Mount to include the full Starlette app with its lifespan.
 
-        # Create an ASGI wrapper for Streamable HTTP with auth
-        class StreamableHTTPApp:
-            """ASGI app that wraps Streamable HTTP handler with authentication."""
+        # Get the streamable HTTP Starlette app (includes lifespan for task group init)
+        streamable_http_starlette_app = mcp.streamable_http_app()
 
-            def __init__(self):
-                # Get the streamable HTTP app from FastMCP
-                self._app = mcp.streamable_http_app()
+        # Create an auth middleware wrapper for the Streamable HTTP app
+        class AuthMiddlewareApp:
+            """ASGI middleware that adds authentication to Streamable HTTP."""
+
+            def __init__(self, app):
+                self._app = app
 
             async def __call__(self, scope, receive, send):
                 from starlette.requests import Request
                 from starlette.responses import Response
                 from .remote_backend import get_remote_backend
+
+                if scope["type"] == "lifespan":
+                    # Pass lifespan events through to the wrapped app
+                    await self._app(scope, receive, send)
+                    return
 
                 request = Request(scope, receive, send)
 
@@ -2607,21 +2617,21 @@ def main():
                 # Forward to the actual Streamable HTTP app
                 await self._app(scope, receive, send)
 
-        streamable_http_app = StreamableHTTPApp()
+        # Wrap the Starlette app with auth middleware
+        streamable_http_with_auth = AuthMiddlewareApp(streamable_http_starlette_app)
 
         # Build routes
         # Note: We use Route with path:path to handle both /sse and /sse/ patterns
         # Mount causes 307 redirects which lose the Authorization header
         routes = [
             Route("/health", health_check, methods=["GET"]),
-            # Streamable HTTP transport (recommended) - mounted at /mcp
-            Route("/mcp", streamable_http_app, methods=["GET", "POST", "DELETE"]),
-            Route("/mcp/", streamable_http_app, methods=["GET", "POST", "DELETE"]),
             # SSE transport (deprecated, kept for backwards compatibility)
             Route("/sse", sse_app, methods=["GET", "POST"]),
             Route("/sse/", sse_app, methods=["GET", "POST"]),
             Route("/messages", messages_app, methods=["POST"]),
             Route("/messages/", messages_app, methods=["POST"]),
+            # Streamable HTTP transport (recommended) - mounted as sub-app to preserve lifespan
+            Mount("/mcp", app=streamable_http_with_auth),
         ]
 
         # Add OAuth 2.0 routes (required by Claude.ai)

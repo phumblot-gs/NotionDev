@@ -649,8 +649,7 @@ class TestStreamableHTTPTransport:
     """Test Streamable HTTP transport configuration and routing."""
 
     def test_server_has_streamable_http_routes(self):
-        """Server should have /mcp routes for Streamable HTTP transport."""
-        import ast
+        """Server should have /mcp mount for Streamable HTTP transport."""
         from pathlib import Path
 
         server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
@@ -658,18 +657,17 @@ class TestStreamableHTTPTransport:
         with open(server_path, "r") as f:
             content = f.read()
 
-        # Check that /mcp routes exist
-        assert 'Route("/mcp"' in content, "Missing /mcp route"
-        assert 'Route("/mcp/"' in content, "Missing /mcp/ route"
+        # Check that /mcp mount exists (using Mount for proper lifespan handling)
+        assert 'Mount("/mcp"' in content, "Missing /mcp mount"
 
-        # Check that StreamableHTTPApp class exists
-        assert "class StreamableHTTPApp" in content, "Missing StreamableHTTPApp class"
+        # Check that AuthMiddlewareApp class exists (wrapper for auth)
+        assert "class AuthMiddlewareApp" in content, "Missing AuthMiddlewareApp class"
 
         # Check that streamable_http_app uses mcp.streamable_http_app()
-        assert "mcp.streamable_http_app()" in content, "StreamableHTTPApp should use mcp.streamable_http_app()"
+        assert "mcp.streamable_http_app()" in content, "Should use mcp.streamable_http_app()"
 
-    def test_streamable_http_routes_support_correct_methods(self):
-        """Streamable HTTP should support GET, POST, and DELETE methods."""
+    def test_streamable_http_has_lifespan_handling(self):
+        """Streamable HTTP should handle lifespan events for task group init."""
         from pathlib import Path
 
         server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
@@ -677,11 +675,9 @@ class TestStreamableHTTPTransport:
         with open(server_path, "r") as f:
             content = f.read()
 
-        # Find the /mcp route definition
-        # Route("/mcp", streamable_http_app, methods=["GET", "POST", "DELETE"])
-        assert 'methods=["GET", "POST", "DELETE"]' in content or \
-               "methods=['GET', 'POST', 'DELETE']" in content, \
-            "Streamable HTTP should support GET, POST, DELETE methods"
+        # Check that lifespan events are passed through
+        assert 'scope["type"] == "lifespan"' in content, \
+            "Should handle lifespan events for task group initialization"
 
     def test_oauth_metadata_endpoints_include_mcp(self):
         """OAuth metadata endpoints should be available for /mcp path."""
@@ -699,7 +695,7 @@ class TestStreamableHTTPTransport:
             "Missing OAuth protected resource metadata for /mcp"
 
     def test_streamable_http_app_has_auth_check(self):
-        """StreamableHTTPApp should check authentication when enabled."""
+        """AuthMiddlewareApp should check authentication when enabled."""
         from pathlib import Path
 
         server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
@@ -707,20 +703,19 @@ class TestStreamableHTTPTransport:
         with open(server_path, "r") as f:
             content = f.read()
 
-        # Find StreamableHTTPApp class and check it has auth logic
-        # Look for the auth check pattern in StreamableHTTPApp
-        streamable_start = content.find("class StreamableHTTPApp")
-        streamable_end = content.find("streamable_http_app = StreamableHTTPApp()")
+        # Find AuthMiddlewareApp class and check it has auth logic
+        auth_start = content.find("class AuthMiddlewareApp")
+        auth_end = content.find("streamable_http_with_auth = AuthMiddlewareApp")
 
-        if streamable_start != -1 and streamable_end != -1:
-            streamable_code = content[streamable_start:streamable_end]
+        if auth_start != -1 and auth_end != -1:
+            auth_code = content[auth_start:auth_end]
 
-            assert "get_user_from_token" in streamable_code, \
-                "StreamableHTTPApp should call get_user_from_token"
-            assert "config.auth_enabled" in streamable_code, \
-                "StreamableHTTPApp should check config.auth_enabled"
-            assert "401" in streamable_code or "Unauthorized" in streamable_code, \
-                "StreamableHTTPApp should return 401 on auth failure"
+            assert "get_user_from_token" in auth_code, \
+                "AuthMiddlewareApp should call get_user_from_token"
+            assert "config.auth_enabled" in auth_code, \
+                "AuthMiddlewareApp should check config.auth_enabled"
+            assert "401" in auth_code or "Unauthorized" in auth_code, \
+                "AuthMiddlewareApp should return 401 on auth failure"
 
     def test_sse_transport_still_available(self):
         """SSE transport should still be available for backwards compatibility."""
@@ -749,8 +744,8 @@ class TestDualTransportSupport:
             content = f.read()
 
         # Check that both routes exist in the file
-        # We look for the Route definitions directly rather than parsing the list
-        assert 'Route("/mcp"' in content, "Missing /mcp route"
+        # /mcp uses Mount for lifespan, /sse uses Route
+        assert 'Mount("/mcp"' in content, "Missing /mcp mount"
         assert 'Route("/sse"' in content, "Missing /sse route"
         assert 'Route("/health"' in content, "Missing /health route"
 
