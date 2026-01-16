@@ -138,11 +138,12 @@ EOF
 #### 1. Get API Tokens
 
 **🔑 Notion Token:**
-1. Go to https://www.notion.so/my-integrations
-2. Create a new "NotionDev" integration
-3. Copy the token (starts with `secret_`)
-4. Get the database IDs for modules and features
-   URL: `notion.so/workspace/[DATABASE_ID]?v=...`
+1. Ask your Notion workspace administrator for the existing NotionDev integration token
+2. The token starts with `secret_`
+3. Get the database IDs for modules and features from your admin
+   URL format: `notion.so/workspace/[DATABASE_ID]?v=...`
+
+> **Note:** If you are the workspace admin and need to create a new integration, go to https://www.notion.so/my-integrations
 
 **🔑 Asana Token:**
 1. Go to https://app.asana.com/0/my-apps

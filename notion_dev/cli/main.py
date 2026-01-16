@@ -134,7 +134,8 @@ def login(ctx, notion_token, notion_modules_db, notion_features_db,
 
     # Collect Notion configuration
     console.print("\n[bold cyan]== Notion Configuration ==[/bold cyan]")
-    console.print("Get your integration token at: https://www.notion.so/my-integrations")
+    console.print("Ask your Notion workspace admin for the NotionDev integration token")
+    console.print("[dim](Admin? Create one at: https://www.notion.so/my-integrations)[/dim]")
 
     if not notion_token:
         if yes:

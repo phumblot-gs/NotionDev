@@ -407,10 +407,11 @@ asana:
 ## Step 4: Get your API tokens
 
 ### Notion Token:
-1. Go to https://www.notion.so/my-integrations
-2. Create a new integration named "NotionDev"
-3. Copy the "Internal Integration Secret" (starts with `secret_`)
-4. Share your Modules and Features databases with the integration
+1. Ask your Notion workspace administrator for the existing NotionDev integration token
+2. The token starts with `secret_`
+3. The admin should also provide you with the Modules and Features database IDs
+
+> **Note:** If you are the workspace admin and need to create a new integration, go to https://www.notion.so/my-integrations
 
 ### Notion Database IDs:
 - Open your database in Notion
