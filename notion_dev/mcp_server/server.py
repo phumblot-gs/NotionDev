@@ -2131,6 +2131,13 @@ def main():
                 user = get_user_from_token(request)
 
                 if config.auth_enabled and not user:
+                    # Log debug info for failed auth
+                    auth_header = request.headers.get("authorization", "")
+                    has_cookie = "notiondev_token" in request.cookies
+                    has_query = "token" in request.query_params
+                    logger.warning(f"SSE auth failed - Auth header: {bool(auth_header)}, Cookie: {has_cookie}, Query: {has_query}")
+                    if auth_header:
+                        logger.warning(f"Auth header present but invalid: {auth_header[:50]}...")
                     # Redirect to login if not authenticated
                     response = RedirectResponse(url="/auth/login", status_code=302)
                     await response(scope, receive, send)
