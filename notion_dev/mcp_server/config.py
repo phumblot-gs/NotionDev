@@ -40,6 +40,10 @@ class ServerConfig:
     jwt_secret: Optional[str] = None
     jwt_expiration_hours: int = 1
 
+    # Static OAuth client (optional, bypasses Dynamic Client Registration)
+    static_oauth_client_id: Optional[str] = None
+    static_oauth_client_secret: Optional[str] = None
+
     # Service account tokens (for remote mode)
     service_notion_token: Optional[str] = None
     service_asana_token: Optional[str] = None
@@ -108,6 +112,8 @@ class ServerConfig:
             ALLOWED_EMAILS: Comma-separated list of specific emails allowed (e.g., "user@example.com,admin@example.com")
             JWT_SECRET: Secret for signing JWT tokens
             JWT_EXPIRATION_HOURS: JWT token lifetime (default: 1)
+            STATIC_OAUTH_CLIENT_ID: Pre-configured OAuth client ID (optional)
+            STATIC_OAUTH_CLIENT_SECRET: Pre-configured OAuth client secret (optional)
             SERVICE_NOTION_TOKEN: Notion token for service account
             SERVICE_ASANA_TOKEN: Asana PAT for service account
             REPOS_CACHE_DIR: Directory for cloned repos (default: /data/repos)
@@ -131,6 +137,8 @@ class ServerConfig:
             allowed_emails=allowed_emails,
             jwt_secret=os.environ.get("JWT_SECRET"),
             jwt_expiration_hours=int(os.environ.get("JWT_EXPIRATION_HOURS", "1")),
+            static_oauth_client_id=os.environ.get("STATIC_OAUTH_CLIENT_ID"),
+            static_oauth_client_secret=os.environ.get("STATIC_OAUTH_CLIENT_SECRET"),
             service_notion_token=os.environ.get("SERVICE_NOTION_TOKEN"),
             service_asana_token=os.environ.get("SERVICE_ASANA_TOKEN"),
             repos_cache_dir=os.environ.get("REPOS_CACHE_DIR", "/data/repos"),

@@ -137,6 +137,37 @@ class MCPOAuthServer:
         # Code/token expiration
         self._code_expiration_seconds = 600  # 10 minutes
 
+    def register_static_client(
+        self,
+        client_id: str,
+        client_secret: Optional[str] = None,
+        client_name: str = "Claude.ai Static Client",
+    ) -> None:
+        """Register a pre-configured static OAuth client.
+
+        This allows bypassing Dynamic Client Registration (RFC 7591) by using
+        pre-configured credentials in Claude.ai's advanced settings.
+
+        Args:
+            client_id: Static client ID
+            client_secret: Optional client secret
+            client_name: Human-readable client name
+        """
+        # Create a client that accepts any redirect URI (Claude.ai uses its own)
+        client = OAuthClient(
+            client_id=client_id,
+            client_secret=client_secret,
+            client_name=client_name,
+            redirect_uris=[],  # Empty = accept any (validated at runtime)
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            scope="mcp:tools mcp:resources mcp:prompts",
+            token_endpoint_auth_method="none" if not client_secret else "client_secret_post",
+        )
+
+        self._clients[client_id] = client
+        logger.info(f"Registered static OAuth client: {client_id} ({client_name})")
+
     def get_metadata(self) -> Dict[str, Any]:
         """Get OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
         return {
@@ -249,8 +280,18 @@ class MCPOAuthServer:
             raise ValueError("invalid_client")
 
         # Validate redirect URI
-        if redirect_uri not in client.redirect_uris:
-            raise ValueError("invalid_redirect_uri")
+        # Static clients (empty redirect_uris) accept any HTTPS redirect URI
+        if client.redirect_uris:
+            # Dynamic clients must match registered URIs
+            if redirect_uri not in client.redirect_uris:
+                raise ValueError("invalid_redirect_uri")
+        else:
+            # Static client - validate it's a safe URI (HTTPS or localhost)
+            parsed = urlparse(redirect_uri)
+            if parsed.scheme not in ("http", "https"):
+                raise ValueError("invalid_redirect_uri: only http/https allowed")
+            if parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1"):
+                raise ValueError("invalid_redirect_uri: HTTP only allowed for localhost")
 
         # Validate PKCE
         if code_challenge_method != "S256":
