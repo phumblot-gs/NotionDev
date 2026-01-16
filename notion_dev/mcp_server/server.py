@@ -2376,6 +2376,17 @@ def main():
             )
             logger.info(f"OAuth server initialized with issuer: {base_url}")
 
+            # Register static OAuth client if configured
+            # This allows bypassing Dynamic Client Registration by using pre-configured
+            # credentials in Claude.ai's advanced settings
+            if config.static_oauth_client_id:
+                oauth_server.register_static_client(
+                    client_id=config.static_oauth_client_id,
+                    client_secret=config.static_oauth_client_secret,
+                    client_name="Claude.ai Static Client",
+                )
+                logger.info(f"Registered static OAuth client: {config.static_oauth_client_id}")
+
         # OAuth metadata endpoint (RFC 8414)
         async def oauth_metadata(request):
             if not oauth_server:
