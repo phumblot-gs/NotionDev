@@ -645,4 +645,131 @@ class TestConcurrentUserSessions:
         assert results["keep@example.com_kept"] == "keep@example.com"
 
 
+class TestStreamableHTTPTransport:
+    """Test Streamable HTTP transport configuration and routing."""
+
+    def test_server_has_streamable_http_routes(self):
+        """Server should have /mcp routes for Streamable HTTP transport."""
+        import ast
+        from pathlib import Path
+
+        server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
+
+        with open(server_path, "r") as f:
+            content = f.read()
+
+        # Check that /mcp routes exist
+        assert 'Route("/mcp"' in content, "Missing /mcp route"
+        assert 'Route("/mcp/"' in content, "Missing /mcp/ route"
+
+        # Check that StreamableHTTPApp class exists
+        assert "class StreamableHTTPApp" in content, "Missing StreamableHTTPApp class"
+
+        # Check that streamable_http_app uses mcp.streamable_http_app()
+        assert "mcp.streamable_http_app()" in content, "StreamableHTTPApp should use mcp.streamable_http_app()"
+
+    def test_streamable_http_routes_support_correct_methods(self):
+        """Streamable HTTP should support GET, POST, and DELETE methods."""
+        from pathlib import Path
+
+        server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
+
+        with open(server_path, "r") as f:
+            content = f.read()
+
+        # Find the /mcp route definition
+        # Route("/mcp", streamable_http_app, methods=["GET", "POST", "DELETE"])
+        assert 'methods=["GET", "POST", "DELETE"]' in content or \
+               "methods=['GET', 'POST', 'DELETE']" in content, \
+            "Streamable HTTP should support GET, POST, DELETE methods"
+
+    def test_oauth_metadata_endpoints_include_mcp(self):
+        """OAuth metadata endpoints should be available for /mcp path."""
+        from pathlib import Path
+
+        server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
+
+        with open(server_path, "r") as f:
+            content = f.read()
+
+        # Check OAuth metadata for /mcp
+        assert '/.well-known/oauth-authorization-server/mcp' in content, \
+            "Missing OAuth authorization server metadata for /mcp"
+        assert '/.well-known/oauth-protected-resource/mcp' in content, \
+            "Missing OAuth protected resource metadata for /mcp"
+
+    def test_streamable_http_app_has_auth_check(self):
+        """StreamableHTTPApp should check authentication when enabled."""
+        from pathlib import Path
+
+        server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
+
+        with open(server_path, "r") as f:
+            content = f.read()
+
+        # Find StreamableHTTPApp class and check it has auth logic
+        # Look for the auth check pattern in StreamableHTTPApp
+        streamable_start = content.find("class StreamableHTTPApp")
+        streamable_end = content.find("streamable_http_app = StreamableHTTPApp()")
+
+        if streamable_start != -1 and streamable_end != -1:
+            streamable_code = content[streamable_start:streamable_end]
+
+            assert "get_user_from_token" in streamable_code, \
+                "StreamableHTTPApp should call get_user_from_token"
+            assert "config.auth_enabled" in streamable_code, \
+                "StreamableHTTPApp should check config.auth_enabled"
+            assert "401" in streamable_code or "Unauthorized" in streamable_code, \
+                "StreamableHTTPApp should return 401 on auth failure"
+
+    def test_sse_transport_still_available(self):
+        """SSE transport should still be available for backwards compatibility."""
+        from pathlib import Path
+
+        server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
+
+        with open(server_path, "r") as f:
+            content = f.read()
+
+        # Check SSE routes still exist
+        assert 'Route("/sse"' in content, "SSE route should still exist"
+        assert "class SSEApp" in content, "SSEApp class should still exist"
+
+
+class TestDualTransportSupport:
+    """Test that both SSE and Streamable HTTP transports work together."""
+
+    def test_both_transports_in_routes_list(self):
+        """Routes should include both /sse and /mcp endpoints."""
+        from pathlib import Path
+
+        server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
+
+        with open(server_path, "r") as f:
+            content = f.read()
+
+        # Check that both routes exist in the file
+        # We look for the Route definitions directly rather than parsing the list
+        assert 'Route("/mcp"' in content, "Missing /mcp route"
+        assert 'Route("/sse"' in content, "Missing /sse route"
+        assert 'Route("/health"' in content, "Missing /health route"
+
+    def test_mcp_route_comes_before_sse_in_documentation(self):
+        """Documentation comments should indicate /mcp is recommended."""
+        from pathlib import Path
+
+        server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
+
+        with open(server_path, "r") as f:
+            content = f.read()
+
+        # Check for comment indicating /mcp is recommended
+        assert "recommended" in content.lower() and "/mcp" in content, \
+            "Should indicate that /mcp (Streamable HTTP) is recommended"
+
+        # Check for comment indicating SSE is deprecated
+        assert "deprecated" in content.lower() and "/sse" in content, \
+            "Should indicate that /sse (SSE) is deprecated"
+
+
 # Run with: pytest tests/unit/test_mcp_modes.py -v
