@@ -2565,11 +2565,59 @@ def main():
                 logger.error(f"Token error: {e}")
                 return JSONResponse({"error": "server_error"}, status_code=500)
 
+        # =====================================================================
+        # Streamable HTTP transport (recommended, replaces deprecated SSE)
+        # =====================================================================
+
+        # Create an ASGI wrapper for Streamable HTTP with auth
+        class StreamableHTTPApp:
+            """ASGI app that wraps Streamable HTTP handler with authentication."""
+
+            def __init__(self):
+                # Get the streamable HTTP app from FastMCP
+                self._app = mcp.streamable_http_app()
+
+            async def __call__(self, scope, receive, send):
+                from starlette.requests import Request
+                from starlette.responses import Response
+                from .remote_backend import get_remote_backend
+
+                request = Request(scope, receive, send)
+
+                # If auth is enabled, verify the user
+                user = get_user_from_token(request)
+
+                if config.auth_enabled and not user:
+                    # Log debug info for failed auth
+                    auth_header = request.headers.get("authorization", "")
+                    logger.warning(f"Streamable HTTP auth failed - Auth header: {bool(auth_header)}")
+                    response = Response("Unauthorized", status_code=401)
+                    await response(scope, receive, send)
+                    return
+
+                # Set user context in backend
+                if user:
+                    try:
+                        backend = get_remote_backend()
+                        remote_user = backend.set_current_user(user.email, user.name)
+                        logger.info(f"Set current user (mcp): {remote_user.email} (Asana: {remote_user.asana_user_gid})")
+                    except Exception as e:
+                        logger.error(f"Failed to set user context: {e}")
+
+                # Forward to the actual Streamable HTTP app
+                await self._app(scope, receive, send)
+
+        streamable_http_app = StreamableHTTPApp()
+
         # Build routes
         # Note: We use Route with path:path to handle both /sse and /sse/ patterns
         # Mount causes 307 redirects which lose the Authorization header
         routes = [
             Route("/health", health_check, methods=["GET"]),
+            # Streamable HTTP transport (recommended) - mounted at /mcp
+            Route("/mcp", streamable_http_app, methods=["GET", "POST", "DELETE"]),
+            Route("/mcp/", streamable_http_app, methods=["GET", "POST", "DELETE"]),
+            # SSE transport (deprecated, kept for backwards compatibility)
             Route("/sse", sse_app, methods=["GET", "POST"]),
             Route("/sse/", sse_app, methods=["GET", "POST"]),
             Route("/messages", messages_app, methods=["POST"]),
@@ -2582,8 +2630,10 @@ def main():
                 # OAuth 2.0 metadata (RFC 8414)
                 Route("/.well-known/oauth-authorization-server", oauth_metadata, methods=["GET"]),
                 Route("/.well-known/oauth-authorization-server/sse", oauth_metadata, methods=["GET"]),
+                Route("/.well-known/oauth-authorization-server/mcp", oauth_metadata, methods=["GET"]),
                 Route("/.well-known/oauth-protected-resource", oauth_protected_resource, methods=["GET"]),
                 Route("/.well-known/oauth-protected-resource/sse", oauth_protected_resource, methods=["GET"]),
+                Route("/.well-known/oauth-protected-resource/mcp", oauth_protected_resource, methods=["GET"]),
                 # Dynamic Client Registration (RFC 7591)
                 Route("/register", oauth_register, methods=["POST"]),
                 # Authorization flow
