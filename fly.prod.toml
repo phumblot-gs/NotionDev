@@ -12,9 +12,10 @@ primary_region = "cdg"  # Paris
 [env]
   MCP_TRANSPORT = "sse"
   MCP_PORT = "8000"
-  MCP_AUTH_ENABLED = "true"
+  MCP_AUTH_ENABLED = "false"
   REPOS_CACHE_DIR = "/data/repos"
   REPOS_CACHE_TTL_HOURS = "1"
+  # Default user for no-auth mode (DEFAULT_USER_EMAIL set via secrets)
 
 [http_service]
   internal_port = 8000
