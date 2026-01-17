@@ -44,6 +44,10 @@ class ServerConfig:
     static_oauth_client_id: Optional[str] = None
     static_oauth_client_secret: Optional[str] = None
 
+    # Default user for no-auth mode (when auth_enabled=False)
+    default_user_email: Optional[str] = None
+    default_user_name: str = "Default User"
+
     # Service account tokens (for remote mode)
     service_notion_token: Optional[str] = None
     service_asana_token: Optional[str] = None
@@ -69,8 +73,8 @@ class ServerConfig:
 
     @property
     def is_remote(self) -> bool:
-        """Check if running in remote mode (SSE with auth)."""
-        return self.transport == TransportMode.SSE and self.auth_enabled
+        """Check if running in remote mode (SSE transport, with or without auth)."""
+        return self.transport == TransportMode.SSE
 
     @property
     def is_local(self) -> bool:
@@ -139,6 +143,8 @@ class ServerConfig:
             jwt_expiration_hours=int(os.environ.get("JWT_EXPIRATION_HOURS", "1")),
             static_oauth_client_id=os.environ.get("STATIC_OAUTH_CLIENT_ID"),
             static_oauth_client_secret=os.environ.get("STATIC_OAUTH_CLIENT_SECRET"),
+            default_user_email=os.environ.get("DEFAULT_USER_EMAIL"),
+            default_user_name=os.environ.get("DEFAULT_USER_NAME", "Default User"),
             service_notion_token=os.environ.get("SERVICE_NOTION_TOKEN"),
             service_asana_token=os.environ.get("SERVICE_ASANA_TOKEN"),
             repos_cache_dir=os.environ.get("REPOS_CACHE_DIR", "/data/repos"),
@@ -187,17 +193,24 @@ class ServerConfig:
         errors = []
 
         if self.is_remote:
-            # Remote mode requires OAuth configuration
-            if not self.google_client_id:
-                errors.append("GOOGLE_CLIENT_ID is required for remote mode")
-            if not self.google_client_secret:
-                errors.append("GOOGLE_CLIENT_SECRET is required for remote mode")
-            if not self.jwt_secret:
-                errors.append("JWT_SECRET is required for remote mode")
+            # Remote mode always requires service tokens
             if not self.service_notion_token:
                 errors.append("SERVICE_NOTION_TOKEN is required for remote mode")
             if not self.service_asana_token:
                 errors.append("SERVICE_ASANA_TOKEN is required for remote mode")
+
+            # OAuth configuration only required if auth is enabled
+            if self.auth_enabled:
+                if not self.google_client_id:
+                    errors.append("GOOGLE_CLIENT_ID is required when auth is enabled")
+                if not self.google_client_secret:
+                    errors.append("GOOGLE_CLIENT_SECRET is required when auth is enabled")
+                if not self.jwt_secret:
+                    errors.append("JWT_SECRET is required when auth is enabled")
+
+            # No-auth mode requires a default user email
+            if not self.auth_enabled and not self.default_user_email:
+                errors.append("DEFAULT_USER_EMAIL is required when auth is disabled")
 
         return errors
 
