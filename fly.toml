@@ -14,12 +14,11 @@ primary_region = "cdg"  # Paris
 
 [env]
   # Non-sensitive environment variables
-  MCP_TRANSPORT = "sse"
+  MCP_TRANSPORT = "streamable-http"
   MCP_PORT = "8000"
-  MCP_AUTH_ENABLED = "true"
+  MCP_AUTH_ENABLED = "false"
   REPOS_CACHE_DIR = "/data/repos"
   REPOS_CACHE_TTL_HOURS = "1"
-  # ALLOWED_EMAIL_DOMAIN is set via secrets for flexibility
 
 [http_service]
   internal_port = 8000
@@ -53,10 +52,7 @@ primary_region = "cdg"  # Paris
   initial_size = "1gb"
 
 # Secrets to configure (via fly secrets set):
-# - GOOGLE_CLIENT_ID
-# - GOOGLE_CLIENT_SECRET
-# - JWT_SECRET
-# - ALLOWED_EMAIL_DOMAIN
 # - SERVICE_NOTION_TOKEN
 # - SERVICE_ASANA_TOKEN
 # - GITHUB_TOKEN (optional, for private repos)
+# Note: OAuth secrets (GOOGLE_CLIENT_ID, etc.) only needed if MCP_AUTH_ENABLED=true
