@@ -2783,7 +2783,8 @@ def main():
         streamable_http_with_auth = AuthMiddlewareApp(streamable_http_starlette_app)
 
         # Build routes
-        # Note: We use Route instead of Mount to avoid 307 redirects which lose the Authorization header
+        # Note: Mount is required for /mcp to preserve lifespan handling (task group init)
+        # We disable redirect_slashes on the main app to avoid 307 redirects
         routes = [
             Route("/health", health_check, methods=["GET"]),
             # SSE transport (deprecated, kept for backwards compatibility)
@@ -2791,9 +2792,8 @@ def main():
             Route("/sse/", sse_app, methods=["GET", "POST"]),
             Route("/messages", messages_app, methods=["POST"]),
             Route("/messages/", messages_app, methods=["POST"]),
-            # Streamable HTTP transport (recommended) - use Route to avoid 307 redirects
-            Route("/mcp", streamable_http_with_auth, methods=["GET", "POST"]),
-            Route("/mcp/", streamable_http_with_auth, methods=["GET", "POST"]),
+            # Streamable HTTP transport (recommended) - Mount preserves lifespan for task group
+            Mount("/mcp", app=streamable_http_with_auth),
         ]
 
         # Add OAuth 2.0 routes (required by Claude.ai for discovery and authorization)
@@ -2825,7 +2825,8 @@ def main():
             ])
 
         # Create Starlette app with routes
-        app = Starlette(routes=routes)
+        # redirect_slashes=False prevents 307 redirects from /mcp to /mcp/
+        app = Starlette(routes=routes, redirect_slashes=False)
 
         # Run with uvicorn
         uvicorn.run(app, host=config.host, port=config.port, log_level="info")
