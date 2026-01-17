@@ -683,7 +683,7 @@ class TestStreamableHTTPTransport:
     """Test Streamable HTTP transport configuration and routing."""
 
     def test_server_has_streamable_http_routes(self):
-        """Server should have /mcp mount for Streamable HTTP transport."""
+        """Server should use MCP's streamable_http_app for /mcp transport."""
         from pathlib import Path
 
         server_path = Path(__file__).parent.parent.parent / "notion_dev" / "mcp_server" / "server.py"
@@ -691,14 +691,16 @@ class TestStreamableHTTPTransport:
         with open(server_path, "r") as f:
             content = f.read()
 
-        # Check that /mcp mount exists (Mount required for lifespan/task group handling)
-        assert 'Mount("/mcp"' in content, "Missing /mcp mount"
+        # Check that mcp.streamable_http_app() is used
+        # The MCP app has its own /mcp route, so we add our routes to it
+        assert "mcp.streamable_http_app()" in content, "Should use mcp.streamable_http_app()"
 
         # Check that AuthMiddlewareApp class exists (wrapper for auth)
         assert "class AuthMiddlewareApp" in content, "Missing AuthMiddlewareApp class"
 
-        # Check that streamable_http_app uses mcp.streamable_http_app()
-        assert "mcp.streamable_http_app()" in content, "Should use mcp.streamable_http_app()"
+        # Check that routes are added to the MCP app's router
+        assert "streamable_http_starlette_app.router.routes" in content, \
+            "Should add routes to MCP app's router"
 
     def test_streamable_http_has_lifespan_handling(self):
         """Streamable HTTP should handle lifespan events for task group init."""
@@ -777,9 +779,10 @@ class TestDualTransportSupport:
         with open(server_path, "r") as f:
             content = f.read()
 
-        # Check that both routes exist in the file
-        # /mcp uses Mount for lifespan, /sse uses Route
-        assert 'Mount("/mcp"' in content, "Missing /mcp mount"
+        # Check that both transports exist
+        # /mcp comes from mcp.streamable_http_app() which has its own /mcp route
+        # /sse uses Route for backwards compatibility
+        assert "mcp.streamable_http_app()" in content, "Missing /mcp from streamable_http_app"
         assert 'Route("/sse"' in content, "Missing /sse route"
         assert 'Route("/health"' in content, "Missing /health route"
 

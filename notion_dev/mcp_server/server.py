@@ -2782,24 +2782,17 @@ def main():
         # Wrap the Starlette app with auth middleware
         streamable_http_with_auth = AuthMiddlewareApp(streamable_http_starlette_app)
 
-        # Build routes
-        # Note: Mount is required for /mcp to preserve lifespan handling (task group init)
-        # We disable redirect_slashes on the main app to avoid 307 redirects
-        routes = [
+        # Build additional routes to add to the MCP app
+        # The MCP streamable_http_app() returns a Starlette app with lifespan for task group init.
+        # We add our routes to it instead of creating a new Starlette app.
+        additional_routes = [
             Route("/health", health_check, methods=["GET"]),
             # SSE transport (deprecated, kept for backwards compatibility)
             Route("/sse", sse_app, methods=["GET", "POST"]),
             Route("/sse/", sse_app, methods=["GET", "POST"]),
             Route("/messages", messages_app, methods=["POST"]),
             Route("/messages/", messages_app, methods=["POST"]),
-            # Streamable HTTP transport (recommended) - Mount preserves lifespan for task group
-            Mount("/mcp", app=streamable_http_with_auth),
-        ]
-
-        # Add OAuth 2.0 routes (required by Claude.ai for discovery and authorization)
-        # These routes are always enabled, even when auth is disabled
-        routes.extend([
-            # OAuth 2.0 metadata (RFC 8414)
+            # OAuth 2.0 metadata (RFC 8414) - required for Claude.ai discovery
             Route("/.well-known/oauth-authorization-server", oauth_metadata, methods=["GET"]),
             Route("/.well-known/oauth-authorization-server/sse", oauth_metadata, methods=["GET"]),
             Route("/.well-known/oauth-authorization-server/mcp", oauth_metadata, methods=["GET"]),
@@ -2811,11 +2804,11 @@ def main():
             # Authorization and token endpoints (work in both auth and no-auth modes)
             Route("/authorize", oauth_authorize, methods=["GET"]),
             Route("/token", oauth_token, methods=["POST"]),
-        ])
+        ]
 
         # Add Google OAuth callback and legacy routes only when auth is enabled
         if config.auth_enabled:
-            routes.extend([
+            additional_routes.extend([
                 # Google OAuth callback (only needed when using Google auth)
                 Route("/oauth/google/callback", oauth_google_callback, methods=["GET"]),
                 # Legacy auth routes (kept for backwards compatibility)
@@ -2824,9 +2817,13 @@ def main():
                 Route("/auth/me", auth_me, methods=["GET"]),
             ])
 
-        # Create Starlette app with routes
-        # redirect_slashes=False prevents 307 redirects from /mcp to /mcp/
-        app = Starlette(routes=routes, redirect_slashes=False)
+        # Add our routes to the MCP app's router
+        # This preserves the MCP app's lifespan handling for task group initialization
+        for route in additional_routes:
+            streamable_http_starlette_app.router.routes.insert(0, route)
+
+        # Create a combined app that wraps the MCP app with auth middleware
+        app = AuthMiddlewareApp(streamable_http_starlette_app)
 
         # Run with uvicorn
         uvicorn.run(app, host=config.host, port=config.port, log_level="info")
