@@ -30,19 +30,19 @@ class TestServerConfig:
         assert config.is_local is True
         assert config.is_remote is False
 
-    def test_remote_mode_requires_sse_and_auth(self):
-        """Remote mode requires both SSE transport and auth enabled."""
+    def test_remote_mode_requires_sse_transport(self):
+        """Remote mode requires SSE transport (auth is optional)."""
         from notion_dev.mcp_server.config import ServerConfig, TransportMode
 
-        # SSE without auth is NOT remote
+        # SSE without auth IS remote (no-auth mode)
         config_sse_no_auth = ServerConfig(transport=TransportMode.SSE, auth_enabled=False)
-        assert config_sse_no_auth.is_remote is False
+        assert config_sse_no_auth.is_remote is True
 
-        # SSE with auth IS remote
+        # SSE with auth IS also remote
         config_sse_with_auth = ServerConfig(transport=TransportMode.SSE, auth_enabled=True)
         assert config_sse_with_auth.is_remote is True
 
-        # STDIO with auth is still local
+        # STDIO is always local regardless of auth setting
         config_stdio_with_auth = ServerConfig(transport=TransportMode.STDIO, auth_enabled=True)
         assert config_stdio_with_auth.is_remote is False
         assert config_stdio_with_auth.is_local is True
@@ -67,7 +67,8 @@ class TestServerConfig:
         """In remote mode, local-only tools should be disabled."""
         from notion_dev.mcp_server.config import ServerConfig, TransportMode
 
-        config = ServerConfig(transport=TransportMode.SSE, auth_enabled=True)
+        # Remote mode works with or without auth
+        config = ServerConfig(transport=TransportMode.SSE, auth_enabled=False)
 
         # Local-only tools should be disabled
         assert config.is_tool_enabled("notiondev_check_installation") is False
@@ -107,11 +108,11 @@ class TestServerConfig:
         assert config.transport == TransportMode.STDIO
         assert config.is_local is True
 
-    def test_config_validation_remote_mode(self):
-        """Remote mode should require OAuth and service tokens."""
+    def test_config_validation_remote_mode_with_auth(self):
+        """Remote mode with auth should require OAuth and service tokens."""
         from notion_dev.mcp_server.config import ServerConfig, TransportMode
 
-        # Remote mode without required tokens should fail validation
+        # Remote mode with auth but without required tokens should fail validation
         config = ServerConfig(
             transport=TransportMode.SSE,
             auth_enabled=True,
@@ -124,6 +125,39 @@ class TestServerConfig:
         assert any("GOOGLE_CLIENT_ID" in e for e in errors)
         assert any("JWT_SECRET" in e for e in errors)
         assert any("SERVICE_NOTION_TOKEN" in e for e in errors)
+
+    def test_config_validation_remote_mode_no_auth(self):
+        """Remote mode without auth should require service tokens and default user."""
+        from notion_dev.mcp_server.config import ServerConfig, TransportMode
+
+        # Remote mode without auth requires default_user_email and service tokens
+        config = ServerConfig(
+            transport=TransportMode.SSE,
+            auth_enabled=False,
+            # Missing: default_user_email, service tokens
+        )
+
+        errors = config.validate()
+
+        assert len(errors) > 0
+        assert any("DEFAULT_USER_EMAIL" in e for e in errors)
+        assert any("SERVICE_NOTION_TOKEN" in e for e in errors)
+
+    def test_config_validation_remote_mode_no_auth_valid(self):
+        """Remote mode without auth should pass with service tokens and default user."""
+        from notion_dev.mcp_server.config import ServerConfig, TransportMode
+
+        config = ServerConfig(
+            transport=TransportMode.SSE,
+            auth_enabled=False,
+            default_user_email="default@example.com",
+            service_notion_token="test_notion_token",
+            service_asana_token="test_asana_token",
+        )
+
+        errors = config.validate()
+
+        assert len(errors) == 0
 
     def test_config_validation_local_mode_no_errors(self):
         """Local mode should have no validation errors."""

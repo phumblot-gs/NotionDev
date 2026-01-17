@@ -2152,14 +2152,15 @@ def main():
                     except Exception as e:
                         logger.error(f"Failed to set user context: {e}")
                 else:
-                    # Try headers/query params as fallback (for testing)
-                    user_email = request.headers.get("x-user-email") or request.query_params.get("user_email")
-                    user_name = request.headers.get("x-user-name", "Claude User")
+                    # No authenticated user - use default user if configured (no-auth mode)
+                    # Or try headers/query params as fallback (for testing)
+                    user_email = config.default_user_email or request.headers.get("x-user-email") or request.query_params.get("user_email")
+                    user_name = config.default_user_name or request.headers.get("x-user-name", "Claude User")
                     if user_email:
                         try:
                             backend = get_remote_backend()
                             remote_user = backend.set_current_user(user_email, user_name)
-                            logger.info(f"Set current user (fallback): {remote_user.email}")
+                            logger.info(f"Set current user (no-auth mode): {remote_user.email} (Asana: {remote_user.asana_user_gid})")
                         except Exception as e:
                             logger.error(f"Failed to set user context: {e}")
 
@@ -2199,14 +2200,15 @@ def main():
                     except Exception as e:
                         logger.error(f"Failed to set user context: {e}")
                 else:
-                    # Try headers/query params as fallback (for testing)
-                    user_email = request.headers.get("x-user-email") or request.query_params.get("user_email")
-                    user_name = request.headers.get("x-user-name", "Claude User")
+                    # No authenticated user - use default user if configured (no-auth mode)
+                    # Or try headers/query params as fallback (for testing)
+                    user_email = config.default_user_email or request.headers.get("x-user-email") or request.query_params.get("user_email")
+                    user_name = config.default_user_name or request.headers.get("x-user-name", "Claude User")
                     if user_email:
                         try:
                             backend = get_remote_backend()
                             remote_user = backend.set_current_user(user_email, user_name)
-                            logger.info(f"Set current user (messages fallback): {remote_user.email}")
+                            logger.info(f"Set current user (messages, no-auth mode): {remote_user.email}")
                         except Exception as e:
                             logger.error(f"Failed to set user context: {e}")
 
@@ -2624,6 +2626,15 @@ def main():
                         logger.info(f"Set current user (mcp): {remote_user.email} (Asana: {remote_user.asana_user_gid})")
                     except Exception as e:
                         logger.error(f"Failed to set user context: {e}")
+                else:
+                    # No authenticated user - use default user if configured (no-auth mode)
+                    if config.default_user_email:
+                        try:
+                            backend = get_remote_backend()
+                            remote_user = backend.set_current_user(config.default_user_email, config.default_user_name)
+                            logger.info(f"Set current user (mcp, no-auth mode): {remote_user.email} (Asana: {remote_user.asana_user_gid})")
+                        except Exception as e:
+                            logger.error(f"Failed to set user context: {e}")
 
                 # Forward to the actual Streamable HTTP app
                 await self._app(scope, receive, send)
