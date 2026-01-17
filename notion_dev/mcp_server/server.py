@@ -2455,56 +2455,98 @@ def main():
                 logger.error(f"Registration error (no-auth): {e}")
                 return JSONResponse({"error": "server_error", "error_description": str(e)}, status_code=500)
 
+        # Storage for no-auth authorization codes (in-memory, short-lived)
+        # Maps code -> {client_id, redirect_uri, code_challenge, code_challenge_method, scope, created_at}
+        _noauth_codes: dict = {}
+
         # Authorization endpoint
         async def oauth_authorize(request):
-            if not oauth_server:
-                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+            # Get query parameters
+            client_id = request.query_params.get("client_id")
+            redirect_uri = request.query_params.get("redirect_uri")
+            scope = request.query_params.get("scope", "mcp:tools")
+            state = request.query_params.get("state")
+            code_challenge = request.query_params.get("code_challenge")
+            code_challenge_method = request.query_params.get("code_challenge_method", "S256")
+            response_type = request.query_params.get("response_type")
 
-            try:
-                # Get query parameters
-                client_id = request.query_params.get("client_id")
-                redirect_uri = request.query_params.get("redirect_uri")
-                scope = request.query_params.get("scope", "mcp:tools")
-                state = request.query_params.get("state")
-                code_challenge = request.query_params.get("code_challenge")
-                code_challenge_method = request.query_params.get("code_challenge_method", "S256")
-                response_type = request.query_params.get("response_type")
+            if response_type != "code":
+                return JSONResponse({
+                    "error": "unsupported_response_type",
+                    "error_description": "Only 'code' response_type is supported"
+                }, status_code=400)
 
-                if response_type != "code":
-                    return JSONResponse({
-                        "error": "unsupported_response_type",
-                        "error_description": "Only 'code' response_type is supported"
-                    }, status_code=400)
+            if not all([client_id, redirect_uri]):
+                return JSONResponse({
+                    "error": "invalid_request",
+                    "error_description": "Missing required parameters"
+                }, status_code=400)
 
-                if not all([client_id, redirect_uri, code_challenge]):
-                    return JSONResponse({
-                        "error": "invalid_request",
-                        "error_description": "Missing required parameters"
-                    }, status_code=400)
+            # If OAuth server is configured, use it
+            if oauth_server:
+                try:
+                    if not code_challenge:
+                        return JSONResponse({
+                            "error": "invalid_request",
+                            "error_description": "Missing code_challenge"
+                        }, status_code=400)
 
-                # Create Google OAuth URL
-                auth_url = oauth_server.create_authorization_url(
-                    client_id=client_id,
-                    redirect_uri=redirect_uri,
-                    scope=scope,
-                    state=state or "",
-                    code_challenge=code_challenge,
-                    code_challenge_method=code_challenge_method,
-                )
+                    # Create Google OAuth URL
+                    auth_url = oauth_server.create_authorization_url(
+                        client_id=client_id,
+                        redirect_uri=redirect_uri,
+                        scope=scope,
+                        state=state or "",
+                        code_challenge=code_challenge,
+                        code_challenge_method=code_challenge_method,
+                    )
 
-                return RedirectResponse(url=auth_url, status_code=302)
+                    return RedirectResponse(url=auth_url, status_code=302)
 
-            except ValueError as e:
-                error_msg = str(e)
-                if "invalid_client" in error_msg:
-                    return JSONResponse({"error": "invalid_client"}, status_code=401)
-                elif "invalid_redirect_uri" in error_msg:
-                    return JSONResponse({"error": "invalid_redirect_uri"}, status_code=400)
-                else:
-                    return JSONResponse({"error": "invalid_request", "error_description": error_msg}, status_code=400)
-            except Exception as e:
-                logger.error(f"Authorization error: {e}")
-                return JSONResponse({"error": "server_error"}, status_code=500)
+                except ValueError as e:
+                    error_msg = str(e)
+                    if "invalid_client" in error_msg:
+                        return JSONResponse({"error": "invalid_client"}, status_code=401)
+                    elif "invalid_redirect_uri" in error_msg:
+                        return JSONResponse({"error": "invalid_redirect_uri"}, status_code=400)
+                    else:
+                        return JSONResponse({"error": "invalid_request", "error_description": error_msg}, status_code=400)
+                except Exception as e:
+                    logger.error(f"Authorization error: {e}")
+                    return JSONResponse({"error": "server_error"}, status_code=500)
+
+            # No-auth mode: generate code and redirect immediately
+            import uuid
+            import time
+            import urllib.parse
+
+            auth_code = f"noauth-{uuid.uuid4().hex}"
+
+            # Store the code with its parameters (expires in 10 minutes)
+            _noauth_codes[auth_code] = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
+                "scope": scope,
+                "created_at": time.time(),
+            }
+
+            # Clean up old codes (older than 10 minutes)
+            current_time = time.time()
+            expired_codes = [c for c, data in _noauth_codes.items() if current_time - data["created_at"] > 600]
+            for c in expired_codes:
+                del _noauth_codes[c]
+
+            logger.info(f"No-auth mode: generated authorization code for client {client_id}")
+
+            # Build redirect URL with code and state
+            params = {"code": auth_code}
+            if state:
+                params["state"] = state
+
+            redirect_url = f"{redirect_uri}?{urllib.parse.urlencode(params)}"
+            return RedirectResponse(url=redirect_url, status_code=302)
 
         # Google OAuth callback (internal)
         async def oauth_google_callback(request):
@@ -2575,9 +2617,6 @@ def main():
 
         # Token endpoint
         async def oauth_token(request):
-            if not oauth_server:
-                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
-
             try:
                 # Parse form data
                 form = await request.form()
@@ -2587,21 +2626,85 @@ def main():
                 client_id = form.get("client_id")
                 code_verifier = form.get("code_verifier")
 
-                if not all([grant_type, code, redirect_uri, client_id, code_verifier]):
+                if not all([grant_type, code, redirect_uri, client_id]):
                     return JSONResponse({
                         "error": "invalid_request",
                         "error_description": "Missing required parameters"
                     }, status_code=400)
 
-                result = oauth_server.exchange_code_for_token(
-                    grant_type=grant_type,
-                    code=code,
-                    redirect_uri=redirect_uri,
-                    client_id=client_id,
-                    code_verifier=code_verifier,
-                )
+                # If OAuth server is configured, use it
+                if oauth_server:
+                    if not code_verifier:
+                        return JSONResponse({
+                            "error": "invalid_request",
+                            "error_description": "Missing code_verifier"
+                        }, status_code=400)
 
-                return JSONResponse(result)
+                    result = oauth_server.exchange_code_for_token(
+                        grant_type=grant_type,
+                        code=code,
+                        redirect_uri=redirect_uri,
+                        client_id=client_id,
+                        code_verifier=code_verifier,
+                    )
+
+                    return JSONResponse(result)
+
+                # No-auth mode: validate the code and return a dummy token
+                import time
+                import uuid
+
+                if grant_type != "authorization_code":
+                    return JSONResponse({
+                        "error": "unsupported_grant_type",
+                        "error_description": "Only authorization_code grant is supported"
+                    }, status_code=400)
+
+                # Check if code exists and is valid
+                if code not in _noauth_codes:
+                    return JSONResponse({
+                        "error": "invalid_grant",
+                        "error_description": "Invalid or expired authorization code"
+                    }, status_code=400)
+
+                code_data = _noauth_codes[code]
+
+                # Verify client_id matches
+                if code_data["client_id"] != client_id:
+                    return JSONResponse({
+                        "error": "invalid_grant",
+                        "error_description": "Client ID mismatch"
+                    }, status_code=400)
+
+                # Verify redirect_uri matches
+                if code_data["redirect_uri"] != redirect_uri:
+                    return JSONResponse({
+                        "error": "invalid_grant",
+                        "error_description": "Redirect URI mismatch"
+                    }, status_code=400)
+
+                # Check if code has expired (10 minutes)
+                if time.time() - code_data["created_at"] > 600:
+                    del _noauth_codes[code]
+                    return JSONResponse({
+                        "error": "invalid_grant",
+                        "error_description": "Authorization code expired"
+                    }, status_code=400)
+
+                # Code is valid, delete it (one-time use)
+                del _noauth_codes[code]
+
+                # Generate a dummy access token
+                access_token = f"noauth-token-{uuid.uuid4().hex}"
+
+                logger.info(f"No-auth mode: issued access token for client {client_id}")
+
+                return JSONResponse({
+                    "access_token": access_token,
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                    "scope": code_data.get("scope", "mcp:tools"),
+                })
 
             except ValueError as e:
                 error_msg = str(e)
@@ -2693,7 +2796,7 @@ def main():
             Mount("/mcp", app=streamable_http_with_auth),
         ]
 
-        # Add OAuth 2.0 metadata routes (required by Claude.ai for discovery)
+        # Add OAuth 2.0 routes (required by Claude.ai for discovery and authorization)
         # These routes are always enabled, even when auth is disabled
         routes.extend([
             # OAuth 2.0 metadata (RFC 8414)
@@ -2705,15 +2808,16 @@ def main():
             Route("/.well-known/oauth-protected-resource/mcp", oauth_protected_resource, methods=["GET"]),
             # Dynamic Client Registration (RFC 7591)
             Route("/register", oauth_register, methods=["POST"]),
+            # Authorization and token endpoints (work in both auth and no-auth modes)
+            Route("/authorize", oauth_authorize, methods=["GET"]),
+            Route("/token", oauth_token, methods=["POST"]),
         ])
 
-        # Add full OAuth 2.0 authorization flow routes only when auth is enabled
+        # Add Google OAuth callback and legacy routes only when auth is enabled
         if config.auth_enabled:
             routes.extend([
-                # Authorization flow
-                Route("/authorize", oauth_authorize, methods=["GET"]),
+                # Google OAuth callback (only needed when using Google auth)
                 Route("/oauth/google/callback", oauth_google_callback, methods=["GET"]),
-                Route("/token", oauth_token, methods=["POST"]),
                 # Legacy auth routes (kept for backwards compatibility)
                 Route("/auth/login", auth_login, methods=["GET"]),
                 Route("/auth/callback", auth_callback, methods=["GET"]),
