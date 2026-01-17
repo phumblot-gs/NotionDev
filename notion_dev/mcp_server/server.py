@@ -2359,13 +2359,13 @@ def main():
         # OAuth 2.0 endpoints (RFC 8414, RFC 7591) for Claude.ai compatibility
         # =====================================================================
 
+        # Determine base URL for OAuth metadata (used in both auth and no-auth modes)
+        base_url = os.environ.get("MCP_BASE_URL", f"http://localhost:{config.port}")
+
         # Initialize OAuth server if auth is enabled
         oauth_server = None
         if config.auth_enabled:
             from .oauth_server import init_oauth_server
-
-            # Determine base URL
-            base_url = os.environ.get("MCP_BASE_URL", f"http://localhost:{config.port}")
 
             oauth_server = init_oauth_server(
                 issuer=base_url,
@@ -2390,32 +2390,69 @@ def main():
                 logger.info(f"Registered static OAuth client: {config.static_oauth_client_id}")
 
         # OAuth metadata endpoint (RFC 8414)
+        # Returns minimal metadata even when auth is disabled, for Claude.ai compatibility
         async def oauth_metadata(request):
-            if not oauth_server:
-                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
-            return JSONResponse(oauth_server.get_metadata())
+            if oauth_server:
+                return JSONResponse(oauth_server.get_metadata())
+            # No-auth mode: return minimal metadata indicating no auth required
+            return JSONResponse({
+                "issuer": base_url,
+                "authorization_endpoint": f"{base_url}/authorize",
+                "token_endpoint": f"{base_url}/token",
+                "registration_endpoint": f"{base_url}/register",
+                "response_types_supported": ["code"],
+                "grant_types_supported": ["authorization_code"],
+                "token_endpoint_auth_methods_supported": ["none"],
+                "code_challenge_methods_supported": ["S256"],
+                "scopes_supported": ["mcp:tools"],
+            })
 
         # Protected resource metadata
+        # Returns minimal metadata even when auth is disabled, for Claude.ai compatibility
         async def oauth_protected_resource(request):
-            if not oauth_server:
-                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
-            return JSONResponse(oauth_server.get_protected_resource_metadata())
+            if oauth_server:
+                return JSONResponse(oauth_server.get_protected_resource_metadata())
+            # No-auth mode: return minimal metadata indicating no bearer token required
+            return JSONResponse({
+                "resource": base_url,
+                "authorization_servers": [base_url],
+                "bearer_methods_supported": [],  # No bearer token required
+                "scopes_supported": ["mcp:tools"],
+            })
 
         # Dynamic client registration (RFC 7591)
+        # In no-auth mode, accepts any registration and returns a dummy client
         async def oauth_register(request):
-            if not oauth_server:
-                return JSONResponse({"error": "OAuth not configured"}, status_code=500)
+            if oauth_server:
+                try:
+                    body = await request.json()
+                    result = oauth_server.register_client(body)
+                    return JSONResponse(result, status_code=201)
+                except json.JSONDecodeError:
+                    return JSONResponse({"error": "invalid_request", "error_description": "Invalid JSON"}, status_code=400)
+                except ValueError as e:
+                    return JSONResponse({"error": "invalid_client_metadata", "error_description": str(e)}, status_code=400)
+                except Exception as e:
+                    logger.error(f"Registration error: {e}")
+                    return JSONResponse({"error": "server_error", "error_description": str(e)}, status_code=500)
 
+            # No-auth mode: return a dummy client registration
             try:
                 body = await request.json()
-                result = oauth_server.register_client(body)
-                return JSONResponse(result, status_code=201)
+                import uuid
+                client_id = f"no-auth-client-{uuid.uuid4().hex[:8]}"
+                return JSONResponse({
+                    "client_id": client_id,
+                    "client_name": body.get("client_name", "Anonymous Client"),
+                    "redirect_uris": body.get("redirect_uris", []),
+                    "grant_types": ["authorization_code"],
+                    "response_types": ["code"],
+                    "token_endpoint_auth_method": "none",
+                }, status_code=201)
             except json.JSONDecodeError:
                 return JSONResponse({"error": "invalid_request", "error_description": "Invalid JSON"}, status_code=400)
-            except ValueError as e:
-                return JSONResponse({"error": "invalid_client_metadata", "error_description": str(e)}, status_code=400)
             except Exception as e:
-                logger.error(f"Registration error: {e}")
+                logger.error(f"Registration error (no-auth): {e}")
                 return JSONResponse({"error": "server_error", "error_description": str(e)}, status_code=500)
 
         # Authorization endpoint
@@ -2656,18 +2693,23 @@ def main():
             Mount("/mcp", app=streamable_http_with_auth),
         ]
 
-        # Add OAuth 2.0 routes (required by Claude.ai)
+        # Add OAuth 2.0 metadata routes (required by Claude.ai for discovery)
+        # These routes are always enabled, even when auth is disabled
+        routes.extend([
+            # OAuth 2.0 metadata (RFC 8414)
+            Route("/.well-known/oauth-authorization-server", oauth_metadata, methods=["GET"]),
+            Route("/.well-known/oauth-authorization-server/sse", oauth_metadata, methods=["GET"]),
+            Route("/.well-known/oauth-authorization-server/mcp", oauth_metadata, methods=["GET"]),
+            Route("/.well-known/oauth-protected-resource", oauth_protected_resource, methods=["GET"]),
+            Route("/.well-known/oauth-protected-resource/sse", oauth_protected_resource, methods=["GET"]),
+            Route("/.well-known/oauth-protected-resource/mcp", oauth_protected_resource, methods=["GET"]),
+            # Dynamic Client Registration (RFC 7591)
+            Route("/register", oauth_register, methods=["POST"]),
+        ])
+
+        # Add full OAuth 2.0 authorization flow routes only when auth is enabled
         if config.auth_enabled:
             routes.extend([
-                # OAuth 2.0 metadata (RFC 8414)
-                Route("/.well-known/oauth-authorization-server", oauth_metadata, methods=["GET"]),
-                Route("/.well-known/oauth-authorization-server/sse", oauth_metadata, methods=["GET"]),
-                Route("/.well-known/oauth-authorization-server/mcp", oauth_metadata, methods=["GET"]),
-                Route("/.well-known/oauth-protected-resource", oauth_protected_resource, methods=["GET"]),
-                Route("/.well-known/oauth-protected-resource/sse", oauth_protected_resource, methods=["GET"]),
-                Route("/.well-known/oauth-protected-resource/mcp", oauth_protected_resource, methods=["GET"]),
-                # Dynamic Client Registration (RFC 7591)
-                Route("/register", oauth_register, methods=["POST"]),
                 # Authorization flow
                 Route("/authorize", oauth_authorize, methods=["GET"]),
                 Route("/oauth/google/callback", oauth_google_callback, methods=["GET"]),
