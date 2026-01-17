@@ -48,6 +48,11 @@ class ServerConfig:
     default_user_email: Optional[str] = None
     default_user_name: str = "Default User"
 
+    # URL secret key for obscuring endpoints (optional, format: xxx-xxx-xxx-xxxx)
+    # When set, all MCP endpoints will be prefixed with this key
+    # e.g., /mcp becomes /{url_secret_key}/mcp
+    url_secret_key: Optional[str] = None
+
     # Service account tokens (for remote mode)
     service_notion_token: Optional[str] = None
     service_asana_token: Optional[str] = None
@@ -145,6 +150,7 @@ class ServerConfig:
             static_oauth_client_secret=os.environ.get("STATIC_OAUTH_CLIENT_SECRET"),
             default_user_email=os.environ.get("DEFAULT_USER_EMAIL"),
             default_user_name=os.environ.get("DEFAULT_USER_NAME", "Default User"),
+            url_secret_key=os.environ.get("MCP_URL_SECRET_KEY"),
             service_notion_token=os.environ.get("SERVICE_NOTION_TOKEN"),
             service_asana_token=os.environ.get("SERVICE_ASANA_TOKEN"),
             repos_cache_dir=os.environ.get("REPOS_CACHE_DIR", "/data/repos"),
