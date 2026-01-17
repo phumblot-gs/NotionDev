@@ -10,9 +10,9 @@ primary_region = "cdg"  # Paris
   dockerfile = "Dockerfile"
 
 [env]
-  MCP_TRANSPORT = "streamable-http"
+  MCP_TRANSPORT = "sse"
   MCP_PORT = "8000"
-  MCP_AUTH_ENABLED = "false"
+  MCP_AUTH_ENABLED = "true"
   REPOS_CACHE_DIR = "/data/repos"
   REPOS_CACHE_TTL_HOURS = "1"
 

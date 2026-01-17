@@ -47,5 +47,4 @@ EXPOSE 8000
 # The MCP SSE endpoint at /sse is used for health monitoring
 
 # Default command: run MCP server in remote mode
-# Auth is controlled by MCP_AUTH_ENABLED env var, not CLI flag
-CMD ["python", "-m", "notion_dev.mcp_server.server", "--transport", "sse", "--port", "8000"]
+CMD ["python", "-m", "notion_dev.mcp_server.server", "--transport", "sse", "--port", "8000", "--auth"]
