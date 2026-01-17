@@ -115,7 +115,20 @@ When working with modules, features, or tickets, you MUST use NotionDev tools in
 
 Both modes ensure tickets are created in the correct portfolio with proper user assignment.
 """
-    mcp = FastMCP("notiondev", instructions=MCP_SERVER_INSTRUCTIONS)
+    # Import transport security settings
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    # Disable DNS rebinding protection since we run behind Fly.io proxy
+    # The Host header is set by the proxy, not by the original client
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False
+    )
+
+    mcp = FastMCP(
+        "notiondev",
+        instructions=MCP_SERVER_INSTRUCTIONS,
+        transport_security=transport_security
+    )
 else:
     # Create a mock mcp object with no-op decorators for when mcp package is not available
     # This allows the module to be imported without errors
