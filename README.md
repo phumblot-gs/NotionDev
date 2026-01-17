@@ -228,6 +228,24 @@ Add to your Cursor MCP settings (`.cursor/mcp.json` in your project or global se
 }
 ```
 
+#### Claude.ai Web Interface (Remote MCP)
+
+NotionDev can be used directly in [Claude.ai](https://claude.ai) via the remote MCP server:
+
+1. Go to Claude.ai Settings → Integrations → Add MCP Server
+2. Enter the server URL: `https://notiondev.grand-shooting.com/mcp`
+3. Click "Connect" to authorize
+
+The remote server uses a no-auth mode with a default user, making it easy to deploy for teams.
+
+**For self-hosted deployments**, you can add a secret URL prefix for security:
+```bash
+# Set a secret key on Fly.io
+fly secrets set MCP_URL_SECRET_KEY=your-secret-uuid --app your-app
+
+# Then use the URL: https://your-app.fly.dev/{secret}/mcp
+```
+
 #### Available MCP Tools
 
 Once configured, the following tools are available in your AI assistant:
@@ -568,6 +586,13 @@ notion-dev/
 ```
 
 ## 📝 Changelog
+
+### v2.0.0 (2026-01-17)
+- ✅ **Remote MCP Server for Claude.ai** - Full integration with Claude.ai web interface
+- ✅ **No-auth mode** - MCP server can run without OAuth for simplified deployment
+- ✅ **URL Secret Key** - Optional endpoint obscurity with secret URL prefix
+- ✅ **Streamable HTTP transport** - New recommended transport (replaces deprecated SSE)
+- ✅ Deployed on Fly.io (notiondev-prod.fly.dev)
 
 ### v1.4.0 (2025-12-30)
 - ✅ Refactored MCP server to use CLI commands exclusively (single source of truth)
