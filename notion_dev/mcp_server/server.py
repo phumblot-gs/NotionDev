@@ -2838,6 +2838,51 @@ def main():
         # Create a combined app that wraps the MCP app with auth middleware
         app = AuthMiddlewareApp(streamable_http_starlette_app)
 
+        # If URL secret key is configured, wrap the app with a prefix-checking middleware
+        if config.url_secret_key:
+            secret_prefix = f"/{config.url_secret_key}"
+            logger.info(f"URL secret key enabled - endpoints available at {secret_prefix}/...")
+
+            class SecretPrefixMiddleware:
+                """Middleware that requires a secret prefix in the URL path.
+
+                This provides security through obscurity by making endpoints
+                harder to discover without knowing the secret key.
+
+                Requests to /{secret_key}/path are rewritten to /path.
+                Requests without the prefix get 404 (except /health for monitoring).
+                """
+                def __init__(self, app, prefix: str):
+                    self._app = app
+                    self._prefix = prefix
+
+                async def __call__(self, scope, receive, send):
+                    if scope["type"] == "http":
+                        path = scope.get("path", "")
+
+                        # Always allow /health without prefix (for Fly.io health checks)
+                        if path == "/health":
+                            await self._app(scope, receive, send)
+                            return
+
+                        # Check if path starts with the secret prefix
+                        if path.startswith(self._prefix):
+                            # Remove the prefix and forward
+                            new_path = path[len(self._prefix):] or "/"
+                            scope = dict(scope)
+                            scope["path"] = new_path
+                            await self._app(scope, receive, send)
+                        else:
+                            # Return 404 for requests without the prefix
+                            from starlette.responses import Response
+                            response = Response("Not Found", status_code=404)
+                            await response(scope, receive, send)
+                    else:
+                        # Pass through non-HTTP requests (lifespan, etc.)
+                        await self._app(scope, receive, send)
+
+            app = SecretPrefixMiddleware(app, secret_prefix)
+
         # Run with uvicorn
         uvicorn.run(app, host=config.host, port=config.port, log_level="info")
 
